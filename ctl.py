@@ -161,12 +161,12 @@ def add_script(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
     dry.set_defaults(func=cmd_script_dry_run)
     send3d = actions.add_parser("3d-send", help="send Task B semicolon request to RK script3d")
     send3d.add_argument("script", nargs="?", default="configs/competition_script.toml")
-    send3d.add_argument("--host", default=None, help="override tasks.B.three_d_host")
-    send3d.add_argument("--port", type=int, default=None, help="override tasks.B.three_d_port")
-    send3d.add_argument("--message", default=None, help='override tasks.B.three_d_request, e.g. "B;start;"')
+    send3d.add_argument("--host", default=None, help="override [three_d].host")
+    send3d.add_argument("--port", type=int, default=None, help="override [three_d].port")
+    send3d.add_argument("--message", default=None, help='override [three_d].task_b_request, e.g. "B;start;"')
     send3d.add_argument("--timeout-s", type=float, default=5.0)
     send3d.set_defaults(func=cmd_script_3d_send)
-    serve = actions.add_parser("serve", help="start persistent VS semicolon script listener", add_help=False)
+    serve = actions.add_parser("serve", help="connect to VS and run persistent semicolon script service", add_help=False)
     serve.add_argument(*HELP_ARGS, action="help", help="show script serve help and exit")
     serve.add_argument("script", nargs="?", default="configs/competition_script.toml")
     serve.set_defaults(func=cmd_script_serve)
@@ -304,9 +304,10 @@ def cmd_script_3d_send(args: argparse.Namespace) -> int:
         script_path = ROOT / script_path
     script = load_script(script_path)
     task_b = (script.get("tasks") or {}).get("B") or {}
-    host = args.host or task_b.get("three_d_host", "192.168.173.2")
-    port = int(args.port or task_b.get("three_d_port", 9303))
-    message = str(args.message or task_b.get("three_d_request", "B;start;")).rstrip()
+    three_d = script.get("three_d", {})
+    host = args.host or three_d.get("host", task_b.get("three_d_host", "192.168.173.2"))
+    port = int(args.port or three_d.get("port", task_b.get("three_d_port", 9303)))
+    message = str(args.message or three_d.get("task_b_request", task_b.get("three_d_request", "B;start;"))).rstrip()
     try:
         with socket.create_connection((host, port), timeout=args.timeout_s) as conn:
             stream = conn.makefile("rwb")

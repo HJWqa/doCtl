@@ -33,7 +33,7 @@
                     <div class="card-icon">V</div>
                     <div class="card-body">
                         <div class="card-title">Vision Studio</div>
-                        <div class="card-sub">VS 连接 Script 主控端口</div>
+                        <div class="card-sub">Script 主动连接 VS</div>
                     </div>
                     <div class="card-status" id="status-vision">○</div>
                 </div>
@@ -56,7 +56,7 @@
             </div>
 
             <div class="btn-group">
-                <button class="btn btn-start" id="btn-start" onclick="sendControl('start')">启动监听</button>
+                <button class="btn btn-start" id="btn-start" onclick="sendControl('start')">启动连接</button>
                 <button class="btn btn-stop" id="btn-stop" onclick="sendControl('stop')" disabled>停止</button>
                 <button class="btn btn-pause" id="btn-pause" onclick="sendControl('pause')" disabled>暂停</button>
                 <button class="btn btn-resume" id="btn-resume" onclick="sendControl('resume')" disabled>恢复</button>
@@ -64,7 +64,7 @@
 
             <div class="settings-panel script-editor-panel">
                 <div class="set-title">
-                    <span>比赛剧本</span>
+                    <span>Script</span>
                     <span id="script-path">--</span>
                 </div>
                 <textarea id="script-editor" spellcheck="false"></textarea>
@@ -95,7 +95,7 @@
             <section class="script-watch">
                 <div class="watch-head">
                     <div>
-                        <div class="watch-title">剧本观察</div>
+                        <div class="watch-title">Script 观察</div>
                         <div class="watch-sub" id="watch-current">当前步骤：待机</div>
                     </div>
                     <div class="watch-last">

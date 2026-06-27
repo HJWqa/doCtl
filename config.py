@@ -1,6 +1,10 @@
 """
 dobotCtl 全局配置
-所有 IP / 端口 / 运动参数集中管理
+
+注意：
+- 比赛自动 Script 的 VS / RK 3D / Dobot Bot IP、端口、运动参数，以
+  configs/competition_script.toml 为准。
+- 本文件只保留 Web 服务端口、旧版调试命令和兼容客户端的默认值。
 """
 
 import os
@@ -10,7 +14,7 @@ import ast
 _CONFIG_FILE = os.path.abspath(__file__)
 
 # ============================================================
-# 网络配置
+# 网络配置：旧版 CLI/调试客户端默认值，比赛 Script 不读取这些值。
 # ============================================================
 VISION_HOST = "172.29.64.1"
 VISION_PORT = 7930
@@ -20,11 +24,11 @@ THREE_D_HOST = "192.168.173.2"
 THREE_D_HTTP_PORT = 8088
 THREE_D_TCP_PORT = 9099
 
-# RK 比赛自动服务：桌面标定、多物块测高
+# 旧 RK auto 服务：保留给历史调试命令，比赛 Script 不直接连接它。
 RK_AUTO_HOST = "192.168.173.2"
 RK_AUTO_PORT = 9200
 
-# 任务三 YOLO+3D 桥接：GET -> wrench/nut + height/Z
+# 旧 task3 bridge：保留给历史调试命令，比赛 Script 只连接 [three_d]。
 TASK3_HOST = "192.168.173.2"
 TASK3_PORT = 9103
 
@@ -79,26 +83,16 @@ HEIGHT_SOURCE = "rk_auto"
 # 配置导出 (供 Web 界面读取和修改)
 # ============================================================
 
-# 允许 Web 界面修改的配置项白名单
+# 允许 Web 界面修改的配置项白名单。
+# 比赛 Script 的通信参数不在这里修改，请直接改 configs/competition_script.toml。
 _EDITABLE_KEYS = {
-    "VISION_HOST", "VISION_PORT",
-    "THREE_D_HOST", "THREE_D_HTTP_PORT", "THREE_D_TCP_PORT",
-    "RK_AUTO_HOST", "RK_AUTO_PORT",
-    "TASK3_HOST", "TASK3_PORT",
-    "CAMERA3D_HOST", "CAMERA3D_PORT",
-    "ARM_HOST", "ARM_PORT",
-    "MOCK_MODE", "HEIGHT_SOURCE",
+    "WEB_HOST", "WEB_PORT",
+    "MOCK_MODE",
 }
 
 # 哪些是 int 类型 (需要转换)
 _INT_KEYS = {
-    "VISION_PORT",
-    "THREE_D_HTTP_PORT",
-    "THREE_D_TCP_PORT",
-    "RK_AUTO_PORT",
-    "TASK3_PORT",
-    "CAMERA3D_PORT",
-    "ARM_PORT",
+    "WEB_PORT",
 }
 
 # 哪些是 bool 类型

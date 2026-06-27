@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import socket
-import socketserver
 import threading
 import time
 from collections import deque
@@ -13,14 +12,15 @@ from protocols.semicolon import ProtocolError, format_message, parse_message
 from utils.logger import logger
 
 
-TrafficCallback = Callable[[str, str], None]
+TrafficCallback = Callable[[str, str, str], None]
 StateCallback = Callable[[dict[str, Any]], None]
 
 
 class ScriptService:
     """Persistent semicolon-protocol competition service.
 
-    Vision Studio connects here once the service is started. The service handles:
+    The controller connects to Vision Studio as a TCP client and keeps that
+    connection open for the whole match. The service handles:
       start;A;all; -> echo handshake
       A;all;x1;y1;x2;y2;x3;y3; -> Task A Bot commands
       B;x1;y1;x2;y2; -> Task B 3D request + Bot commands
@@ -28,10 +28,15 @@ class ScriptService:
 
     def __init__(self, script_path: str | Path = "configs/competition_script.toml") -> None:
         self.script_path = _resolve_path(script_path)
-        self._server: ThreadingTcpServer | None = None
+        self._conn: socket.socket | None = None
         self._thread: threading.Thread | None = None
+        self._stop_event = threading.Event()
         self._running = False
         self._paused = False
+        self._vision_connected = False
+        self._vision_target: dict[str, Any] = {}
+        self._three_d_last_ok = False
+        self._bot_last_ok = False
         self._state_callbacks: list[StateCallback] = []
         self._traffic_callbacks: list[TrafficCallback] = []
         self._stats_lock = threading.Lock()
@@ -48,28 +53,34 @@ class ScriptService:
         if self._running:
             return
         script = self._load_script()
-        listen = script.get("listen", {})
-        host = str(listen.get("host", "0.0.0.0"))
-        port = int(listen.get("port", 7950))
-        handler = self._make_handler()
-        self._server = ThreadingTcpServer((host, port), handler)
-        self._server.service = self
+        self._vision_target = _endpoint(script, "vision", "127.0.0.1", 7930)
         self._running = True
         self._paused = False
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._vision_loop, daemon=True)
         self._thread.start()
-        logger.success(f"[Script] 已监听 VS 分号协议 {host}:{port}")
+        logger.success(
+            f"[Script] 已启动，作为 Client 连接 VS {self._vision_target['host']}:{self._vision_target['port']}"
+        )
         self._notify_state()
 
     def stop(self) -> None:
         self._running = False
-        if self._server:
-            self._server.shutdown()
-            self._server.server_close()
-            self._server = None
+        self._stop_event.set()
+        if self._conn:
+            try:
+                self._conn.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                self._conn.close()
+            except OSError:
+                pass
+            self._conn = None
         if self._thread:
             self._thread.join(timeout=3)
             self._thread = None
+        self._vision_connected = False
         logger.info("[Script] 已停止")
         self._notify_state()
 
@@ -95,14 +106,28 @@ class ScriptService:
             script = self._load_script()
         except Exception as exc:
             self.last_error = str(exc)
-        listen = script.get("listen", {}) if isinstance(script, dict) else {}
+        vision = _endpoint(script, "vision", "127.0.0.1", 7930) if isinstance(script, dict) else {}
+        three_d = _endpoint(script, "three_d", "192.168.173.2", 9303) if isinstance(script, dict) else {}
+        bot = _endpoint(script, "bot", "192.168.200.1", 9552) if isinstance(script, dict) else {}
         with self._stats_lock:
             return {
                 "running": self._running,
                 "paused": self._paused,
-                "listen": {
-                    "host": listen.get("host", "0.0.0.0"),
-                    "port": listen.get("port", 7950),
+                "vision": {
+                    "host": vision.get("host", "127.0.0.1"),
+                    "port": vision.get("port", 7930),
+                    "connected": self._vision_connected,
+                    "mode": "client",
+                },
+                "three_d": {
+                    "host": three_d.get("host", "192.168.173.2"),
+                    "port": three_d.get("port", 9303),
+                    "last_ok": self._three_d_last_ok,
+                },
+                "bot": {
+                    "host": bot.get("host", "192.168.200.1"),
+                    "port": bot.get("port", 9552),
+                    "last_ok": self._bot_last_ok,
                 },
                 "script_path": str(self.script_path),
                 "total_tasks": self.total_tasks,
@@ -123,9 +148,21 @@ class ScriptService:
     def is_paused(self) -> bool:
         return self._paused
 
+    @property
+    def vision_connected(self) -> bool:
+        return self._vision_connected
+
+    @property
+    def three_d_last_ok(self) -> bool:
+        return self._three_d_last_ok
+
+    @property
+    def bot_last_ok(self) -> bool:
+        return self._bot_last_ok
+
     def handle_line(self, line: str) -> str:
         self._record("VS 收到", line)
-        self._emit("rx", line)
+        self._emit("vision", "rx", line)
         self.last_rx = line
         if self._paused:
             return self._reply(["NG", "paused"])
@@ -183,13 +220,18 @@ class ScriptService:
         port = int(three_d.get("port", cfg.get("three_d_port", 9303)))
         message = str(three_d.get("task_b_request", cfg.get("three_d_request", "B;start;"))).rstrip()
         timeout_s = float(three_d.get("timeout_s", cfg.get("three_d_timeout_s", 5.0)))
-        self._emit("tx", f"3D {host}:{port} {message}")
-        with socket.create_connection((host, port), timeout=timeout_s) as conn:
-            stream = conn.makefile("rwb")
-            stream.write((message + "\n").encode("utf-8"))
-            stream.flush()
-            response = stream.readline().decode("utf-8", errors="replace").strip()
-        self._emit("rx", f"3D {response}")
+        self._emit("camera3d", "tx", f"{host}:{port} {message}")
+        try:
+            with socket.create_connection((host, port), timeout=timeout_s) as conn:
+                stream = conn.makefile("rwb")
+                stream.write((message + "\n").encode("utf-8"))
+                stream.flush()
+                response = stream.readline().decode("utf-8", errors="replace").strip()
+            self._three_d_last_ok = True
+        except OSError:
+            self._three_d_last_ok = False
+            raise
+        self._emit("camera3d", "rx", response)
         return response
 
     def _send_bot_commands(self, commands: list[str]) -> bool:
@@ -202,19 +244,26 @@ class ScriptService:
         if bool(bot.get("dry_run", False)):
             for command in commands:
                 self._record("Bot dry-run", command)
-                self._emit("tx", f"BOT dry-run {command}")
-                self._emit("rx", "BOT OK")
+                self._emit("arm", "tx", f"dry-run {command}")
+                self._emit("arm", "rx", "OK")
+            self._bot_last_ok = True
             return True
-        with socket.create_connection((host, port), timeout=timeout_s) as conn:
-            stream = conn.makefile("rwb")
-            for command in commands:
-                if not self._send_bot_command(stream, command, timeout_s, retry):
-                    return False
-        return True
+        try:
+            with socket.create_connection((host, port), timeout=timeout_s) as conn:
+                stream = conn.makefile("rwb")
+                for command in commands:
+                    if not self._send_bot_command(stream, command, timeout_s, retry):
+                        self._bot_last_ok = False
+                        return False
+            self._bot_last_ok = True
+            return True
+        except OSError:
+            self._bot_last_ok = False
+            raise
 
     def _send_bot_command(self, stream: Any, command: str, timeout_s: float, retry: int) -> bool:
         for attempt in range(1, retry + 2):
-            self._emit("tx", f"BOT {command}")
+            self._emit("arm", "tx", command)
             self._record("Bot 发送", command)
             stream.write((command.rstrip() + "\n").encode("utf-8"))
             stream.flush()
@@ -225,12 +274,12 @@ class ScriptService:
                 except socket.timeout:
                     break
                 if response:
-                    self._emit("rx", f"BOT {response}")
+                    self._emit("arm", "rx", response)
                     if response.upper().startswith("OK"):
                         self._record("Bot OK", command)
                         return True
                     break
-            self._emit("err", f"BOT retry {attempt}/{retry + 1}: {command}")
+            self._emit("arm", "err", f"retry {attempt}/{retry + 1}: {command}")
         return False
 
     def _load_script(self) -> dict[str, Any]:
@@ -239,7 +288,7 @@ class ScriptService:
     def _reply(self, fields: list[Any]) -> str:
         response = format_message(fields)
         self.last_tx = response
-        self._emit("tx", response)
+        self._emit("vision", "tx", response)
         self._notify_state()
         return response
 
@@ -255,10 +304,10 @@ class ScriptService:
         self._record("完成" if ok else "失败", error or "任务完成", "ok" if ok else "error")
         self._notify_state()
 
-    def _emit(self, direction: str, data: str) -> None:
+    def _emit(self, device: str, direction: str, data: str) -> None:
         for callback in self._traffic_callbacks:
             try:
-                callback(direction, data)
+                callback(device, direction, data)
             except Exception:
                 pass
 
@@ -281,28 +330,59 @@ class ScriptService:
         self._events.append(event)
         self._notify_state()
 
-    def _make_handler(self) -> type[socketserver.StreamRequestHandler]:
-        class Handler(socketserver.StreamRequestHandler):
-            def handle(inner_self) -> None:
-                peer = f"{inner_self.client_address[0]}:{inner_self.client_address[1]}"
-                logger.info(f"[Script] VS 已连接 {peer}")
-                while True:
-                    raw = inner_self.rfile.readline()
-                    if not raw:
-                        return
-                    line = raw.decode("utf-8", errors="replace").strip()
-                    if not line:
-                        continue
-                    response = inner_self.server.service.handle_line(line)  # type: ignore[attr-defined]
-                    inner_self.wfile.write((response + "\n").encode("utf-8"))
-                    inner_self.wfile.flush()
+    def _vision_loop(self) -> None:
+        while self._running and not self._stop_event.is_set():
+            try:
+                script = self._load_script()
+                vision = _endpoint(script, "vision", "127.0.0.1", 7930)
+                self._vision_target = vision
+                host = str(vision["host"])
+                port = int(vision["port"])
+                timeout_s = float(vision.get("timeout_s", 3.0))
+                reconnect_s = float(vision.get("reconnect_s", 1.0))
+                self._record("连接 VS", f"{host}:{port}")
+                with socket.create_connection((host, port), timeout=timeout_s) as conn:
+                    conn.settimeout(1.0)
+                    self._conn = conn
+                    self._vision_connected = True
+                    self._record("VS 已连接", f"{host}:{port}", "ok")
+                    self._recv_vision(conn)
+            except OSError as exc:
+                if self._running and not self._stop_event.is_set():
+                    self._record("VS 连接失败", str(exc), "error")
+                    logger.warn(f"[Script] VS 连接失败: {exc}")
+                    self._stop_event.wait(reconnect_s if "reconnect_s" in locals() else 1.0)
+            except (ScriptError, ValueError) as exc:
+                self._record("Script 配置错误", str(exc), "error")
+                logger.error(f"[Script] 配置错误: {exc}")
+                self._stop_event.wait(1.0)
+            finally:
+                self._vision_connected = False
+                self._conn = None
+                self._notify_state()
 
-        return Handler
-
-
-class ThreadingTcpServer(socketserver.ThreadingTCPServer):
-    allow_reuse_address = True
-    service: ScriptService
+    def _recv_vision(self, conn: socket.socket) -> None:
+        buffer = b""
+        while self._running and not self._stop_event.is_set():
+            try:
+                chunk = conn.recv(4096)
+            except socket.timeout:
+                if buffer.strip().endswith(b";"):
+                    line = buffer.decode("utf-8", errors="replace").strip()
+                    buffer = b""
+                    response = self.handle_line(line)
+                    conn.sendall((response + "\n").encode("utf-8"))
+                continue
+            if not chunk:
+                raise ConnectionError("VS closed connection")
+            buffer += chunk
+            while b"\n" in buffer:
+                raw, buffer = buffer.split(b"\n", 1)
+                line = raw.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                response = self.handle_line(line)
+                conn.sendall((response + "\n").encode("utf-8"))
 
 
 def _resolve_path(path: str | Path) -> Path:
@@ -310,6 +390,15 @@ def _resolve_path(path: str | Path) -> Path:
     if item.is_absolute():
         return item
     return ROOT / item
+
+
+def _endpoint(script: dict[str, Any], section: str, default_host: str, default_port: int) -> dict[str, Any]:
+    cfg = script.get(section, {}) if isinstance(script, dict) else {}
+    return {
+        "host": str(cfg.get("host", default_host)),
+        "port": int(cfg.get("port", default_port)),
+        **{k: v for k, v in cfg.items() if k not in {"host", "port"}},
+    }
 
 
 def _task_mode(line: str, default: str) -> str:

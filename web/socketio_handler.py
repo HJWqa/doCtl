@@ -29,10 +29,10 @@ def init_socketio(coordinator):
 
     coordinator.on_state_change(on_state)
     coordinator.script.on_state_change(lambda status: socketio.emit("status", coordinator.get_status()))
-    coordinator.script.on_data(lambda direction, data_str: socketio.emit("data_traffic", {
-        "device": "script",
-        "device_name": "Script主控",
-        "host": str(coordinator.script.get_status().get("listen", {})),
+    coordinator.script.on_data(lambda device, direction, data_str: socketio.emit("data_traffic", {
+        "device": device,
+        "device_name": _script_device_name(device),
+        "host": _script_device_host(coordinator.script.get_status(), device),
         "direction": direction,
         "data": data_str,
     }))
@@ -77,7 +77,6 @@ def handle_control(data):
         "resume": lambda: _coordinator.script.resume(),
         "legacy_start": lambda: _coordinator.start(),
         "legacy_stop": lambda: _coordinator.stop(),
-        "home": lambda: _coordinator.arm.home(),
     }
 
     if cmd in handlers:
@@ -85,3 +84,24 @@ def handle_control(data):
             handlers[cmd]()
         except Exception as e:
             socketio.emit("error", {"message": str(e)})
+
+
+def _script_device_name(device):
+    return {
+        "script": "Script",
+        "vision": "Vision Studio",
+        "camera3d": "RK 3D TCP",
+        "arm": "Dobot Bot",
+    }.get(device, device)
+
+
+def _script_device_host(status, device):
+    section = {
+        "vision": "vision",
+        "camera3d": "three_d",
+        "arm": "bot",
+    }.get(device)
+    if not section:
+        return "Script"
+    cfg = status.get(section, {})
+    return f"{cfg.get('host', '--')}:{cfg.get('port', '--')}"

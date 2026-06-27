@@ -16,6 +16,10 @@
 configs/competition_script.toml
 ```
 
+当前采用 TOML 作为 Script 格式。比赛自动流程的 VS / RK 3D / Dobot Bot
+IP、端口、超时、运动参数都以这个文件为准；`config.py` 只保留 Web
+和旧调试命令的默认值。
+
 预览命令：
 
 ```bash
@@ -98,7 +102,7 @@ cd /home/shiro/Projects/RK
 ./rk script3d serve
 ```
 
-doCtl 默认连接 `tasks.B.three_d_host:tasks.B.three_d_port`，当前是 `192.168.173.2:9303`。
+doCtl 默认连接 `[three_d].host:[three_d].port`，当前是 `192.168.173.2:9303`。
 
 连通测试：
 
@@ -114,7 +118,8 @@ python3 ctl.py script 3d-send
 python3 ctl.py serve
 ```
 
-然后在 Web 里点击“启动”，Script 主控会监听 `configs/competition_script.toml -> [listen]` 配置的 VS 分号协议端口。
+然后在 Web 里点击“启动连接”，Script 主控会主动连接
+`configs/competition_script.toml -> [vision]` 配置的 VS 分号协议服务。
 之后 VS 发送：
 
 ```text

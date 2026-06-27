@@ -56,9 +56,9 @@ function updateStatus(status) {
     const paused = !!script.paused;
 
     setDeviceStatus("script", running);
-    setDeviceStatus("vision", running);
-    setDeviceStatus("camera", running);
-    setDeviceStatus("arm", running);
+    setDeviceStatus("vision", !!(script.vision && script.vision.connected));
+    setDeviceStatus("camera", !!(script.three_d && script.three_d.last_ok));
+    setDeviceStatus("arm", !!(script.bot && script.bot.last_ok));
 
     document.getElementById("btn-start").disabled = running;
     document.getElementById("btn-stop").disabled = !running;
@@ -73,8 +73,10 @@ function updateStatus(status) {
     document.getElementById("watch-rx").textContent = script.last_rx || "--";
     document.getElementById("watch-tx").textContent = script.last_tx || "--";
 
-    const listen = script.listen || {};
-    document.getElementById("script-listen").textContent = `${listen.host || "0.0.0.0"}:${listen.port || 7950}`;
+    const vision = script.vision || {};
+    const visionText = `${vision.host || "127.0.0.1"}:${vision.port || 7930}`;
+    document.getElementById("script-listen").textContent =
+        `${vision.connected ? "已连接" : (running ? "连接中" : "目标")} VS ${visionText}`;
     renderEvents(script.events || []);
 }
 
@@ -98,7 +100,7 @@ function updateBadge(running, paused) {
         badge.textContent = "暂停";
         badge.className = "badge badge-mock";
     } else {
-        badge.textContent = "监听中";
+        badge.textContent = "连接中";
         badge.className = "badge badge-real";
     }
 }
@@ -172,8 +174,11 @@ function setScriptMsg(text, cls) {
 function updateTargetsFromText(text) {
     const threeHost = matchTomlValue(text, "three_d", "host") || "192.168.173.2";
     const threePort = matchTomlValue(text, "three_d", "port") || "9303";
+    const visionHost = matchTomlValue(text, "vision", "host") || "127.0.0.1";
+    const visionPort = matchTomlValue(text, "vision", "port") || "7930";
     const botHost = matchTomlValue(text, "bot", "host") || "192.168.200.1";
     const botPort = matchTomlValue(text, "bot", "port") || "9552";
+    document.getElementById("script-listen").textContent = `目标 VS ${visionHost}:${visionPort}`;
     document.getElementById("three-d-target").textContent = `${threeHost}:${threePort}`;
     document.getElementById("bot-target").textContent = `${botHost}:${botPort}`;
 }

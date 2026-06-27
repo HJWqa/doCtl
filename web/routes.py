@@ -42,7 +42,7 @@ def api_logs():
 
 @api.route("/api/script")
 def api_get_script():
-    """读取当前比赛剧本原文"""
+    """读取当前 Script 原文"""
     if _coordinator is None:
         return jsonify({"error": "coordinator not initialized"}), 503
     path = _coordinator.script.script_path
@@ -51,7 +51,7 @@ def api_get_script():
 
 @api.route("/api/script", methods=["POST"])
 def api_save_script():
-    """保存比赛剧本原文"""
+    """保存当前 Script 原文"""
     if _coordinator is None:
         return jsonify({"error": "coordinator not initialized"}), 503
     if _coordinator.script.is_running:
@@ -65,7 +65,7 @@ def api_save_script():
 
 @api.route("/api/control", methods=["POST"])
 def api_control():
-    """控制指令: start / stop / pause / resume / home"""
+    """控制指令: start / stop / pause / resume"""
     if _coordinator is None:
         return jsonify({"error": "coordinator not initialized"}), 503
 
