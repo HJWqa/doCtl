@@ -32,8 +32,8 @@ reconnect_s = 1
 
 [bot]
 # Dobot Bot 的 TCP 服务地址。
-host = "192.168.200.1"
-port = 9552
+host = "127.0.0.1"
+port = 20001
 
 # 单条 Bot 命令等待 OK 的超时和重试次数。
 timeout_s = 8
@@ -68,10 +68,12 @@ min_value_fields = 6
 # true：一条 VS 消息里的多个物体依次处理；false：只处理第一个物体。
 multi_object = true
 
-# step：MovJ/MovL/Suck/Sucl 分步发送；gp：一条 GP 指令完成抓取放置。
-bot_mode = "step"
+# step：MovJ/MovL/Suck(吸)/Suck(停) 分步发送；gp：一条 GP 指令完成抓取放置。
+bot_mode = "gp"
 
 # 默认抓取上方安全 Z、抓取 Z、姿态 RPY。
+# 放置后释放吸盘，再向上抬升的距离（mm），避免刮到已码放的物体。
+release_lift_mm = 15
 approach_z = 150
 pick_z = 123
 pick_rpy = [180, 0, 0]
@@ -126,6 +128,10 @@ place_xy = [9, 10]
 [tasks.B]
 # Task 3：YOLO 贴图物体，VS 给平面 XY，RK 3D 给 Z，Bot 执行 GP。
 name = "Task 3 wrench/nut"
+
+# 前置位姿：收到 B 指令后，先移动到此位姿，再向 3D 发送 start 请求。
+# 格式：[X, Y, Z, Rx, Ry, Rz]
+pre_pose = [-27.047, -227.9198, 236.033, 180, 0, 0]
 
 # VS 样例：B;扳手X;扳手Y;螺母X;螺母Y;
 sample_vs_message = "B;1;2;3;4;"

@@ -30,6 +30,7 @@ class ScriptService:
         self.script_path = _resolve_path(script_path)
         self._conn: socket.socket | None = None
         self._thread: threading.Thread | None = None
+        self._health_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._running = False
         self._paused = False
@@ -59,6 +60,8 @@ class ScriptService:
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._vision_loop, daemon=True)
         self._thread.start()
+        self._health_thread = threading.Thread(target=self._health_loop, daemon=True)
+        self._health_thread.start()
         logger.success(
             f"[Script] 已启动，作为 Client 连接 VS {self._vision_target['host']}:{self._vision_target['port']}"
         )
@@ -80,7 +83,12 @@ class ScriptService:
         if self._thread:
             self._thread.join(timeout=3)
             self._thread = None
+        if self._health_thread:
+            self._health_thread.join(timeout=3)
+            self._health_thread = None
         self._vision_connected = False
+        self._three_d_last_ok = False
+        self._bot_last_ok = False
         logger.info("[Script] 已停止")
         self._notify_state()
 
@@ -201,6 +209,15 @@ class ScriptService:
     def _handle_task_b(self, line: str) -> str:
         script = self._load_script()
         cfg = (script.get("tasks") or {}).get("B") or {}
+        # ---- 前置动作：移动到观测位姿，再发 3D start ----
+        pre_pose = cfg.get("pre_pose")
+        if pre_pose and isinstance(pre_pose, list) and len(pre_pose) >= 6:
+            move_cmd = format_message(["MovJ", *pre_pose[:6]])
+            self._record("Task B", f"前置移动 → {pre_pose[:6]}")
+            if not self._send_bot_commands([move_cmd]):
+                self._mark_task(False, "前置移动失败")
+                return self._reply(["NG", "B", "pre_move_failed"])
+        # ---- 请求 3D 高度 ----
         result = dry_run_task_b(script, cfg, mode="all", vs_message=line)
         self._record("Task B", "请求 3D 高度")
         z_rx = self._request_3d(cfg)
@@ -367,9 +384,14 @@ class ScriptService:
             try:
                 chunk = conn.recv(4096)
             except socket.timeout:
-                if buffer.strip().endswith(b";"):
-                    line = buffer.decode("utf-8", errors="replace").strip()
+                # 超时后处理缓冲区中残留的数据
+                stripped = buffer.strip()
+                if stripped:
+                    line = stripped.decode("utf-8", errors="replace").strip()
                     buffer = b""
+                    if not line.endswith(";"):
+                        self._emit("vision", "err",
+                                   f"VS 消息缺少结尾分号，仍尝试处理: {line[:80]}")
                     response = self.handle_line(line)
                     conn.sendall((response + "\n").encode("utf-8"))
                 continue
@@ -383,6 +405,79 @@ class ScriptService:
                     continue
                 response = self.handle_line(line)
                 conn.sendall((response + "\n").encode("utf-8"))
+
+    def _health_loop(self) -> None:
+        """后台健康检查：探测 VS / 3D / Bot 的 TCP 连通性。
+
+        只在设备当前标记为不可达时才探测（避免频繁建连干扰设备）。
+        首次启动时主动探测一轮建立初始状态。
+        """
+        HEALTH_INTERVAL = 5.0    # 不可达时重探间隔（秒）
+        PROBE_TIMEOUT = 2.0      # 探测超时（秒）
+        INITIAL_PROBED = False   # 是否已完成首次探测
+
+        while self._running and not self._stop_event.is_set():
+            try:
+                script = self._load_script()
+            except Exception:
+                self._stop_event.wait(HEALTH_INTERVAL)
+                continue
+
+            need_probe_3d = (not INITIAL_PROBED) or (not self._three_d_last_ok)
+            need_probe_bot = (not INITIAL_PROBED) or (not self._bot_last_ok)
+            # VS 只做首次探测 + _vision_loop 未连接时探测，避免干扰 _vision_loop 的长连接
+            need_probe_vs = (not INITIAL_PROBED) or (not self._vision_connected)
+
+            if not INITIAL_PROBED:
+                INITIAL_PROBED = True
+
+            # ---- 探测 VS (vision) ----
+            if need_probe_vs:
+                vision = script.get("vision", {})
+                vs_host = str(vision.get("host", "127.0.0.1"))
+                vs_port = int(vision.get("port", 7930))
+                vs_ok = self._probe_tcp(vs_host, vs_port, PROBE_TIMEOUT)
+                if vs_ok != self._vision_connected:
+                    self._emit("vision", "info",
+                               f"VS {vs_host}:{vs_port} {'可达 ✓' if vs_ok else '不可达 ✗'}")
+
+            # ---- 探测 3D (three_d) ----
+            if need_probe_3d:
+                three_d = script.get("three_d", {})
+                td_host = str(three_d.get("host", "192.168.173.2"))
+                td_port = int(three_d.get("port", 9303))
+                td_ok_3d = self._probe_tcp(td_host, td_port, PROBE_TIMEOUT)
+                if td_ok_3d != self._three_d_last_ok:
+                    self._three_d_last_ok = td_ok_3d
+                    self._emit("camera3d", "info",
+                               f"3D {td_host}:{td_port} {'可达 ✓' if td_ok_3d else '不可达 ✗'}")
+                    self._notify_state()
+
+            # ---- 探测 Bot ----
+            if need_probe_bot:
+                bot = script.get("bot", {})
+                bot_host = str(bot.get("host", "192.168.200.1"))
+                bot_port = int(bot.get("port", 9552))
+                bot_ok = self._probe_tcp(bot_host, bot_port, PROBE_TIMEOUT)
+                if bot_ok != self._bot_last_ok:
+                    self._bot_last_ok = bot_ok
+                    self._emit("arm", "info",
+                               f"Bot {bot_host}:{bot_port} {'可达 ✓' if bot_ok else '不可达 ✗'}")
+                    self._notify_state()
+
+            self._stop_event.wait(HEALTH_INTERVAL)
+
+    @staticmethod
+    def _probe_tcp(host: str, port: int, timeout: float) -> bool:
+        """尝试 TCP 连接，成功返回 True。"""
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(timeout)
+            err = sock.connect_ex((host, port))
+            sock.close()
+            return err == 0
+        except Exception:
+            return False
 
 
 def _resolve_path(path: str | Path) -> Path:
