@@ -47,12 +47,14 @@ socket.on("log_batch", (data) => {
 function updateStatus(s) {
     // 设备连接状态
     setDeviceStatus("vision", s.devices && s.devices.vision);
-    setDeviceStatus("camera", s.devices && s.devices.camera3d);
+    setDeviceStatus("camera", s.devices && (s.devices.three_d_http || s.devices.rk_auto || s.devices.task3 || s.devices.camera3d_legacy));
     setDeviceStatus("arm", s.devices && s.devices.arm);
+    setDeviceStatus("script", s.devices && s.devices.script);
 
     // 按钮状态
-    const running = s.running;
-    const paused = s.paused;
+    const script = s.script || {};
+    const running = !!script.running;
+    const paused = !!script.paused;
     document.getElementById("btn-start").disabled = running;
     document.getElementById("btn-pause").disabled = !running || paused;
     document.getElementById("btn-resume").disabled = !paused;
@@ -62,9 +64,9 @@ function updateStatus(s) {
     updateBadge(s.running, s.paused);
 
     // 统计
-    document.getElementById("stat-total").textContent = s.total_tasks || 0;
-    document.getElementById("stat-ok").textContent = s.success_tasks || 0;
-    document.getElementById("stat-fail").textContent = s.fail_tasks || 0;
+    document.getElementById("stat-total").textContent = script.total_tasks || s.total_tasks || 0;
+    document.getElementById("stat-ok").textContent = script.success_tasks || s.success_tasks || 0;
+    document.getElementById("stat-fail").textContent = script.fail_tasks || s.fail_tasks || 0;
 
     // 机械臂繁忙
     const armBusy = s.arm_busy;
@@ -77,6 +79,7 @@ function updateStatus(s) {
 function setDeviceStatus(name, connected) {
     const card = document.getElementById(`card-${name}`);
     const status = document.getElementById(`status-${name}`);
+    if (!card || !status) return;
     if (connected) {
         status.textContent = "● 在线";
         status.classList.add("on");
@@ -87,7 +90,7 @@ function setDeviceStatus(name, connected) {
 }
 
 function updateAllDeviceStatus(connected) {
-    ["vision", "camera", "arm"].forEach(name => setDeviceStatus(name, connected));
+    ["vision", "camera", "arm", "script"].forEach(name => setDeviceStatus(name, connected));
 }
 
 function updateBadge(running, paused) {
@@ -204,6 +207,10 @@ function loadConfig() {
             document.getElementById("cfg-vision-port").value = cfg.VISION_PORT || 9550;
             document.getElementById("cfg-camera-host").value = cfg.CAMERA3D_HOST || "192.168.173.2";
             document.getElementById("cfg-camera-port").value = cfg.CAMERA3D_PORT || 9551;
+            document.getElementById("cfg-rk-auto-host").value = cfg.RK_AUTO_HOST || "192.168.173.2";
+            document.getElementById("cfg-rk-auto-port").value = cfg.RK_AUTO_PORT || 9200;
+            document.getElementById("cfg-task3-host").value = cfg.TASK3_HOST || "192.168.173.2";
+            document.getElementById("cfg-task3-port").value = cfg.TASK3_PORT || 9103;
             document.getElementById("cfg-arm-host").value = cfg.ARM_HOST || "192.168.200.1";
             document.getElementById("cfg-arm-port").value = cfg.ARM_PORT || 9552;
             document.getElementById("cfg-mock").checked = cfg.MOCK_MODE !== false;
@@ -219,6 +226,10 @@ function saveConfig() {
         VISION_PORT: parseInt(document.getElementById("cfg-vision-port").value) || 9550,
         CAMERA3D_HOST: document.getElementById("cfg-camera-host").value.trim(),
         CAMERA3D_PORT: parseInt(document.getElementById("cfg-camera-port").value) || 9551,
+        RK_AUTO_HOST: document.getElementById("cfg-rk-auto-host").value.trim(),
+        RK_AUTO_PORT: parseInt(document.getElementById("cfg-rk-auto-port").value) || 9200,
+        TASK3_HOST: document.getElementById("cfg-task3-host").value.trim(),
+        TASK3_PORT: parseInt(document.getElementById("cfg-task3-port").value) || 9103,
         ARM_HOST: document.getElementById("cfg-arm-host").value.trim(),
         ARM_PORT: parseInt(document.getElementById("cfg-arm-port").value) || 9552,
         MOCK_MODE: document.getElementById("cfg-mock").checked,
@@ -266,6 +277,10 @@ const trafficDeviceNames = {
     all: "全部",
     vision: "2D视觉",
     camera3d: "3D相机",
+    camera3d_legacy: "3D旧链路",
+    rk_auto: "RK自动3D",
+    task3: "任务三桥接",
+    script: "Script主控",
     arm: "机械臂",
 };
 
@@ -406,6 +421,10 @@ function updateTrafficCounts() {
         all: trafficLines.length,
         vision: 0,
         camera3d: 0,
+        camera3d_legacy: 0,
+        rk_auto: 0,
+        task3: 0,
+        script: 0,
         arm: 0,
     };
 
@@ -431,11 +450,15 @@ function testConn(device) {
     const hostMap = {
         vision: "cfg-vision-host",
         camera: "cfg-camera-host",
+        rk_auto: "cfg-rk-auto-host",
+        task3: "cfg-task3-host",
         arm: "cfg-arm-host",
     };
     const portMap = {
         vision: "cfg-vision-port",
         camera: "cfg-camera-port",
+        rk_auto: "cfg-rk-auto-port",
+        task3: "cfg-task3-port",
         arm: "cfg-arm-port",
     };
 

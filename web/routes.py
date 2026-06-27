@@ -50,10 +50,12 @@ def api_control():
     cmd = data.get("cmd", "")
 
     handlers = {
-        "start": lambda: _coordinator.start(),
-        "stop": lambda: _coordinator.stop(),
-        "pause": lambda: _coordinator.pause(),
-        "resume": lambda: _coordinator.resume(),
+        "start": lambda: _coordinator.script.start(),
+        "stop": lambda: _coordinator.script.stop(),
+        "pause": lambda: _coordinator.script.pause(),
+        "resume": lambda: _coordinator.script.resume(),
+        "legacy_start": lambda: _coordinator.start(),
+        "legacy_stop": lambda: _coordinator.stop(),
         "home": lambda: _coordinator.arm.home(),
     }
 

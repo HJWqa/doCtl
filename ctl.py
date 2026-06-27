@@ -159,6 +159,17 @@ def add_script(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None
     dry.add_argument("--mode", default="all", help="Vision mode field, e.g. all")
     dry.add_argument("--vs-message", default=None, help='raw semicolon VS line, e.g. "A;all;1;2;3;4;5;6;"')
     dry.set_defaults(func=cmd_script_dry_run)
+    send3d = actions.add_parser("3d-send", help="send Task B semicolon request to RK script3d")
+    send3d.add_argument("script", nargs="?", default="configs/competition_script.toml")
+    send3d.add_argument("--host", default=None, help="override tasks.B.three_d_host")
+    send3d.add_argument("--port", type=int, default=None, help="override tasks.B.three_d_port")
+    send3d.add_argument("--message", default=None, help='override tasks.B.three_d_request, e.g. "B;start;"')
+    send3d.add_argument("--timeout-s", type=float, default=5.0)
+    send3d.set_defaults(func=cmd_script_3d_send)
+    serve = actions.add_parser("serve", help="start persistent VS semicolon script listener", add_help=False)
+    serve.add_argument(*HELP_ARGS, action="help", help="show script serve help and exit")
+    serve.add_argument("script", nargs="?", default="configs/competition_script.toml")
+    serve.set_defaults(func=cmd_script_serve)
 
 
 def add_vision(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -282,6 +293,46 @@ def cmd_script_dry_run(args: argparse.Namespace) -> int:
         print_json({"ok": False, "error": str(exc)})
         return 2
     print_json(result)
+    return 0
+
+
+def cmd_script_3d_send(args: argparse.Namespace) -> int:
+    from competition.script_runner import ROOT, load_script
+
+    script_path = Path(args.script)
+    if not script_path.is_absolute():
+        script_path = ROOT / script_path
+    script = load_script(script_path)
+    task_b = (script.get("tasks") or {}).get("B") or {}
+    host = args.host or task_b.get("three_d_host", "192.168.173.2")
+    port = int(args.port or task_b.get("three_d_port", 9303))
+    message = str(args.message or task_b.get("three_d_request", "B;start;")).rstrip()
+    try:
+        with socket.create_connection((host, port), timeout=args.timeout_s) as conn:
+            stream = conn.makefile("rwb")
+            stream.write((message + "\n").encode("utf-8"))
+            stream.flush()
+            response = stream.readline().decode("utf-8", errors="replace").strip()
+    except Exception as exc:
+        print_json({"ok": False, "host": host, "port": port, "tx": message, "error": str(exc)})
+        return 1
+    print_json({"ok": response.startswith("B;"), "host": host, "port": port, "tx": message, "rx": response})
+    return 0 if response.startswith("B;") else 1
+
+
+def cmd_script_serve(args: argparse.Namespace) -> int:
+    from competition.script_service import ScriptService
+
+    service = ScriptService(args.script)
+    try:
+        service.start()
+        while service.is_running:
+            import time
+
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        service.stop()
+        return 130
     return 0
 
 

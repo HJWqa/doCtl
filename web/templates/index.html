@@ -37,6 +37,15 @@
                     <div class="card-status" id="status-vision">○</div>
                 </div>
 
+                <div class="card device-card" id="card-script">
+                    <div class="card-icon">⚙</div>
+                    <div class="card-body">
+                        <div class="card-title">Script 主控</div>
+                        <div class="card-sub">VS 分号协议监听</div>
+                    </div>
+                    <div class="card-status" id="status-script">○</div>
+                </div>
+
                 <div class="card device-card" id="card-camera">
                     <div class="card-icon">🔬</div>
                     <div class="card-body">
@@ -98,6 +107,22 @@
                         <input type="number" id="cfg-camera-port" placeholder="9551">
                         <button class="btn-test" onclick="testConn('camera')">测试</button>
                         <span class="test-result" id="test-camera"></span>
+                    </div>
+                    <div class="set-row">
+                        <label>RK Auto IP</label>
+                        <input type="text" id="cfg-rk-auto-host" placeholder="192.168.173.2">
+                        <label>Port</label>
+                        <input type="number" id="cfg-rk-auto-port" placeholder="9200">
+                        <button class="btn-test" onclick="testConn('rk_auto')">测试</button>
+                        <span class="test-result" id="test-rk_auto"></span>
+                    </div>
+                    <div class="set-row">
+                        <label>Task3 IP</label>
+                        <input type="text" id="cfg-task3-host" placeholder="192.168.173.2">
+                        <label>Port</label>
+                        <input type="number" id="cfg-task3-port" placeholder="9103">
+                        <button class="btn-test" onclick="testConn('task3')">测试</button>
+                        <span class="test-result" id="test-task3"></span>
                     </div>
                     <div class="set-row">
                         <label>机械臂 IP</label>
@@ -191,6 +216,15 @@
                     </button>
                     <button class="traffic-tab" type="button" data-device="camera3d" onclick="setTrafficDevice('camera3d')" role="tab" aria-selected="false">
                         3D相机 <span id="traffic-tab-count-camera3d">0</span>
+                    </button>
+                    <button class="traffic-tab" type="button" data-device="script" onclick="setTrafficDevice('script')" role="tab" aria-selected="false">
+                        Script <span id="traffic-tab-count-script">0</span>
+                    </button>
+                    <button class="traffic-tab" type="button" data-device="rk_auto" onclick="setTrafficDevice('rk_auto')" role="tab" aria-selected="false">
+                        RK Auto <span id="traffic-tab-count-rk_auto">0</span>
+                    </button>
+                    <button class="traffic-tab" type="button" data-device="task3" onclick="setTrafficDevice('task3')" role="tab" aria-selected="false">
+                        Task3 <span id="traffic-tab-count-task3">0</span>
                     </button>
                     <button class="traffic-tab" type="button" data-device="arm" onclick="setTrafficDevice('arm')" role="tab" aria-selected="false">
                         机械臂 <span id="traffic-tab-count-arm">0</span>

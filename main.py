@@ -63,7 +63,7 @@ if __name__ == "__main__":
     from web.socketio_handler import socketio
 
     logger.info(f"Web 界面: http://{args.host}:{args.port}")
-    logger.info("启动后请在 Web 界面点击 '启动' 开始任务循环")
+    logger.info("启动后请在 Web 界面点击 '启动'，Script 主控会监听 VS 分号协议")
 
     # 启动 Flask + SocketIO
     socketio.run(app, host=args.host, port=args.port, debug=False, allow_unsafe_werkzeug=True)

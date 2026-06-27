@@ -22,6 +22,8 @@ configs/competition_script.toml
 python3 ctl.py script dry-run --task A
 python3 ctl.py script dry-run --task B
 python3 ctl.py script dry-run --task A --vs-message 'A;all;1;2;3;4;5;6;'
+python3 ctl.py script 3d-send
+python3 ctl.py script serve
 ```
 
 ## Task 2 / A
@@ -88,6 +90,46 @@ Ctl -> Bot: GP;3;4;108;180;0;0;50;30;180;0;0;11;12;150;180;0;0;
 | `7,8` | 扳手/螺母 3D Z 增量 |
 
 `base_table_z` 默认是 `100`，实际抓取 Z = `base_table_z + 3D 返回 Z`。
+
+RK 3D 侧对应服务：
+
+```bash
+cd /home/shiro/Projects/RK
+./rk script3d serve
+```
+
+doCtl 默认连接 `tasks.B.three_d_host:tasks.B.three_d_port`，当前是 `192.168.173.2:9303`。
+
+连通测试：
+
+```bash
+python3 ctl.py script 3d-send
+```
+
+## 常驻运行
+
+比赛时不需要反复运行 dry-run 或 3d-send。启动一次即可：
+
+```bash
+python3 ctl.py serve
+```
+
+然后在 Web 里点击“启动”，Script 主控会监听 `configs/competition_script.toml -> [listen]` 配置的 VS 分号协议端口。
+之后 VS 发送：
+
+```text
+start;A;all;
+A;1;2;3;4;5;6;
+B;1;2;3;4;
+```
+
+doCtl 会在同一个常驻服务里自动完成握手、3D 查询和 Bot 指令发送。
+
+如果不需要 Web，也可以直接：
+
+```bash
+python3 ctl.py script serve
+```
 
 ## 校验策略
 

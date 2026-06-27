@@ -9,6 +9,17 @@ bot_timeout_s = 8
 bot_retry = 2
 three_d_timeout_s = 5
 
+[listen]
+host = "0.0.0.0"
+port = 7950
+
+[bot]
+host = "192.168.200.1"
+port = 9552
+timeout_s = 8
+retry = 2
+dry_run = false
+
 [tasks.A]
 name = "Task 2 blocks"
 sample_vs_message = "A;all;1;2;3;4;5;6;"
@@ -60,6 +71,10 @@ place_xy = [9, 10]
 name = "Task 3 wrench/nut"
 sample_vs_message = "B;1;2;3;4;"
 sample_3d_z = [7, 8]
+three_d_host = "192.168.173.2"
+three_d_port = 9303
+three_d_request = "B;start;"
+three_d_timeout_s = 5
 base_table_z = 100
 pick_rpy = [180, 0, 0]
 place_rpy = [180, 0, 0]

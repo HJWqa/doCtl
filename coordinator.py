@@ -14,6 +14,7 @@ from connectors.three_d_http_client import ThreeDHttpClient
 from connectors.rk_auto_client import RkAutoClient
 from connectors.task3_bridge_client import Task3BridgeClient
 from connectors.arm_client import ArmClient
+from competition.script_service import ScriptService
 from fusion import merge_pose
 from config import CYCLE_INTERVAL_MIN, MOCK_MODE
 from utils.logger import logger
@@ -29,6 +30,7 @@ class Coordinator:
         self.task3 = Task3BridgeClient()
         self.camera3d = Camera3DClient()
         self.arm = ArmClient()
+        self.script = ScriptService()
 
         self._thread: threading.Thread | None = None
         self._running = False
@@ -120,7 +122,9 @@ class Coordinator:
                     "task3": self.task3.is_connected,
                     "camera3d_legacy": self.camera3d.is_connected,
                     "arm": self.arm.is_connected,
+                    "script": self.script.is_running,
                 },
+                "script": self.script.get_status(),
                 "arm_busy": self.arm.is_busy,
             }
 

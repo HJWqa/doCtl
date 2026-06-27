@@ -28,6 +28,14 @@ def init_socketio(coordinator):
         socketio.emit("status", status)
 
     coordinator.on_state_change(on_state)
+    coordinator.script.on_state_change(lambda status: socketio.emit("status", coordinator.get_status()))
+    coordinator.script.on_data(lambda direction, data_str: socketio.emit("data_traffic", {
+        "device": "script",
+        "device_name": "Script主控",
+        "host": str(coordinator.script.get_status().get("listen", {})),
+        "direction": direction,
+        "data": data_str,
+    }))
 
     # 数据收发推送 (每个设备)
     for client, dev_id in [
@@ -67,10 +75,12 @@ def handle_control(data):
 
     cmd = data.get("cmd", "")
     handlers = {
-        "start": lambda: _coordinator.start(),
-        "stop": lambda: _coordinator.stop(),
-        "pause": lambda: _coordinator.pause(),
-        "resume": lambda: _coordinator.resume(),
+        "start": lambda: _coordinator.script.start(),
+        "stop": lambda: _coordinator.script.stop(),
+        "pause": lambda: _coordinator.script.pause(),
+        "resume": lambda: _coordinator.script.resume(),
+        "legacy_start": lambda: _coordinator.start(),
+        "legacy_stop": lambda: _coordinator.stop(),
         "home": lambda: _coordinator.arm.home(),
     }
 
