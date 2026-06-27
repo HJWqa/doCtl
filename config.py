@@ -15,6 +15,19 @@ _CONFIG_FILE = os.path.abspath(__file__)
 VISION_HOST = "172.29.64.1"
 VISION_PORT = 7930
 
+# Fedora/3D 视觉机 Thunderbolt/USB4 地址
+THREE_D_HOST = "192.168.173.2"
+THREE_D_HTTP_PORT = 8088
+THREE_D_TCP_PORT = 9099
+
+# RK 比赛自动服务：桌面标定、多物块测高
+RK_AUTO_HOST = "192.168.173.2"
+RK_AUTO_PORT = 9200
+
+# 任务三 YOLO+3D 桥接：GET -> wrench/nut + height/Z
+TASK3_HOST = "192.168.173.2"
+TASK3_PORT = 9103
+
 CAMERA3D_HOST = "192.168.173.2"
 CAMERA3D_PORT = 9551
 
@@ -58,6 +71,9 @@ MAX_LOG_LINES = 500          # Web UI 日志最大行数
 # ============================================================
 MOCK_MODE = False
 
+# 主控高度链路：rk_auto 为推荐比赛链路；legacy_9551 为旧 get_height 兼容链路。
+HEIGHT_SOURCE = "rk_auto"
+
 
 # ============================================================
 # 配置导出 (供 Web 界面读取和修改)
@@ -66,13 +82,24 @@ MOCK_MODE = False
 # 允许 Web 界面修改的配置项白名单
 _EDITABLE_KEYS = {
     "VISION_HOST", "VISION_PORT",
+    "THREE_D_HOST", "THREE_D_HTTP_PORT", "THREE_D_TCP_PORT",
+    "RK_AUTO_HOST", "RK_AUTO_PORT",
+    "TASK3_HOST", "TASK3_PORT",
     "CAMERA3D_HOST", "CAMERA3D_PORT",
     "ARM_HOST", "ARM_PORT",
-    "MOCK_MODE",
+    "MOCK_MODE", "HEIGHT_SOURCE",
 }
 
 # 哪些是 int 类型 (需要转换)
-_INT_KEYS = {"VISION_PORT", "CAMERA3D_PORT", "ARM_PORT"}
+_INT_KEYS = {
+    "VISION_PORT",
+    "THREE_D_HTTP_PORT",
+    "THREE_D_TCP_PORT",
+    "RK_AUTO_PORT",
+    "TASK3_PORT",
+    "CAMERA3D_PORT",
+    "ARM_PORT",
+}
 
 # 哪些是 bool 类型
 _BOOL_KEYS = {"MOCK_MODE"}

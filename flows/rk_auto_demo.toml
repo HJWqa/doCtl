@@ -1,0 +1,29 @@
+# RK auto 比赛链路离线示例
+
+name = "rk_auto_demo"
+description = "模拟 2D 主控 -> RK auto -> 高度/Z -> 融合 -> 机器人动作"
+repeat = 1
+cycle_interval_sec = 0.2
+stop_on_error = false
+output_jsonl = "offline/runs/rk_auto_demo.jsonl"
+
+[[cycles]]
+name = "固定工位 slot_1 扳手"
+note = "VS 给出机器人 X/Y 和 position_id，RK auto 返回 robot_z_mm"
+vision_objects = [
+  { id = "obj1", x = 250.0, y = 150.0, angle = 30.0, position_id = "slot_1", class_id = "0", label = "wrench" },
+]
+camera_z = 40.0
+height_device = "rk_auto"
+height_cmd = "measure_objects"
+arm_status = "ok"
+
+[[cycles]]
+name = "固定工位 slot_2 螺母"
+vision_objects = [
+  { id = "obj2", x = 320.0, y = 180.0, angle = 0.0, position_id = "slot_2", class_id = "1", label = "nut" },
+]
+camera_z = 68.0
+height_device = "rk_auto"
+height_cmd = "measure_objects"
+arm_status = "ok"

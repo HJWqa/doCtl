@@ -29,6 +29,7 @@ from fusion import merge_pose  # noqa: E402
 DEVICE_LABELS = {
     "vision": "Vision",
     "camera3d": "3D相机",
+    "rk_auto": "RK自动3D",
     "fusion": "Fusion",
     "arm": "机械臂",
     "flow": "Flow",
@@ -176,25 +177,34 @@ def run_cycle(cycle: dict[str, Any], label: str, rec: Recorder) -> bool | None:
     y = float(obj["y"])
     angle = float(obj.get("angle", 0.0))
 
+    height_device = str(cycle.get("height_device", "camera3d"))
+    height_cmd = str(cycle.get("height_cmd", "get_height"))
     camera_status = str(cycle.get("camera_status", "ok"))
-    rec.emit("camera3d", "tx", {"cmd": "get_height", "x": x, "y": y}, label)
+    height_payload = {"cmd": height_cmd, "x": x, "y": y}
+    if "position_id" in obj:
+        height_payload["position_id"] = obj["position_id"]
+    if "class_id" in obj:
+        height_payload["class_id"] = obj["class_id"]
+    if "label" in obj:
+        height_payload["label"] = obj["label"]
+    rec.emit(height_device, "tx", height_payload, label)
 
     if camera_status != "ok":
-        rec.emit("camera3d", "rx", {
+        rec.emit(height_device, "rx", {
             "status": "error",
             "message": cycle.get("camera_message", "camera3d error"),
         }, label)
         return False
 
     if "camera_z" not in cycle:
-        rec.emit("camera3d", "rx", {
+        rec.emit(height_device, "rx", {
             "status": "error",
             "message": "camera_z missing in offline script",
         }, label)
         return False
 
     z = float(cycle["camera_z"])
-    rec.emit("camera3d", "rx", {"status": "ok", "z": z}, label)
+    rec.emit(height_device, "rx", {"status": "ok", "z": z}, label)
 
     pose = merge_pose(x, y, z, angle)
     if isinstance(cycle.get("pose_override"), dict):

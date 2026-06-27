@@ -1,0 +1,85 @@
+# 比赛分号协议脚本配置
+#
+# 所有 TCP 命令最终都会格式化成 "字段1;字段2;...;"。
+# 现场如果 VS 增加字段，只改 vision_fields / min_value_fields。
+
+[global]
+vs_timeout_s = 3
+bot_timeout_s = 8
+bot_retry = 2
+three_d_timeout_s = 5
+
+[tasks.A]
+name = "Task 2 blocks"
+sample_vs_message = "A;all;1;2;3;4;5;6;"
+min_value_fields = 6
+multi_object = true
+
+# step: MovJ/MovL/Suck/Sucl 分步执行；gp: 一条 GP 指令一次完成。
+bot_mode = "step"
+
+approach_z = 150
+pick_z = 123
+pick_rpy = [180, 0, 0]
+place_rpy = [180, 0, 0]
+dock = [11, 12, 150, 180, 0, 0]
+
+[[tasks.A.vision_fields]]
+type = "circle"
+label = "圆柱体"
+fields = ["x", "y"]
+
+[[tasks.A.vision_fields]]
+type = "square"
+label = "正方体"
+fields = ["x", "y"]
+
+[[tasks.A.vision_fields]]
+type = "rectangle"
+label = "长方体"
+fields = ["x", "y"]
+
+[tasks.A.stack]
+base_z = 123
+default_block_height_mm = 20
+default_place_xy = [9, 10]
+
+[tasks.A.objects.circle]
+height_mm = 20
+place_xy = [9, 10]
+
+[tasks.A.objects.square]
+height_mm = 25
+place_xy = [9, 10]
+
+[tasks.A.objects.rectangle]
+height_mm = 15
+place_xy = [9, 10]
+
+[tasks.B]
+name = "Task 3 wrench/nut"
+sample_vs_message = "B;1;2;3;4;"
+sample_3d_z = [7, 8]
+base_table_z = 100
+pick_rpy = [180, 0, 0]
+place_rpy = [180, 0, 0]
+default_dest_xy = [20, 30]
+dock = [11, 12, 150, 180, 0, 0]
+
+[[tasks.B.vision_fields]]
+type = "wrench"
+label = "扳手"
+fields = ["x", "y"]
+
+[[tasks.B.vision_fields]]
+type = "nut"
+label = "螺母"
+fields = ["x", "y"]
+
+[tasks.B.destinations.wrench]
+xy = [20, 30]
+include_dock = false
+
+[tasks.B.destinations.nut]
+xy = [50, 30]
+include_dock = true

@@ -10,6 +10,9 @@ import threading
 
 from connectors.vision_client import VisionClient
 from connectors.camera3d_client import Camera3DClient
+from connectors.three_d_http_client import ThreeDHttpClient
+from connectors.rk_auto_client import RkAutoClient
+from connectors.task3_bridge_client import Task3BridgeClient
 from connectors.arm_client import ArmClient
 from fusion import merge_pose
 from config import CYCLE_INTERVAL_MIN, MOCK_MODE
@@ -21,6 +24,9 @@ class Coordinator:
 
     def __init__(self):
         self.vision = VisionClient()
+        self.three_d = ThreeDHttpClient()
+        self.rk_auto = RkAutoClient()
+        self.task3 = Task3BridgeClient()
         self.camera3d = Camera3DClient()
         self.arm = ArmClient()
 
@@ -48,7 +54,7 @@ class Coordinator:
 
         # ★ 并行连接所有设备, 不阻塞
         threads = []
-        for client in [self.vision, self.camera3d, self.arm]:
+        for client in [self.vision, self.rk_auto, self.task3, self.camera3d, self.arm]:
             t = threading.Thread(target=client.connect, daemon=True)
             t.start()
             threads.append(t)
@@ -75,6 +81,8 @@ class Coordinator:
         if self._thread:
             self._thread.join(timeout=5)
         self.vision.disconnect()
+        self.rk_auto.disconnect()
+        self.task3.disconnect()
         self.camera3d.disconnect()
         self.arm.disconnect()
         logger.info("协调器已停止")
@@ -107,7 +115,10 @@ class Coordinator:
                 "fail_tasks": self.fail_tasks,
                 "devices": {
                     "vision": self.vision.is_connected,
-                    "camera3d": self.camera3d.is_connected,
+                    "three_d_http": self._three_d_http_ok(),
+                    "rk_auto": self.rk_auto.is_connected,
+                    "task3": self.task3.is_connected,
+                    "camera3d_legacy": self.camera3d.is_connected,
                     "arm": self.arm.is_connected,
                 },
                 "arm_busy": self.arm.is_busy,
@@ -124,6 +135,13 @@ class Coordinator:
                 cb(status)
             except Exception:
                 pass
+
+    def _three_d_http_ok(self) -> bool:
+        try:
+            data = self.three_d.health()
+            return bool(data.get("ok"))
+        except Exception:
+            return False
 
     # ---------- 主循环 ----------
 
@@ -164,7 +182,7 @@ class Coordinator:
             logger.info(f"→ 处理物体 #{obj.get('id')}: X={obj['x']} Y={obj['y']}")
 
             # ---- 步骤 2: 高度查询 ----
-            z = self.camera3d.get_height(obj["x"], obj["y"])
+            z = self._measure_robot_z(obj)
             self._notify_state()
 
             if z is None:
@@ -195,10 +213,45 @@ class Coordinator:
 
     def _ensure_connections(self):
         """检查并自动重连各设备"""
-        for client in [self.vision, self.camera3d, self.arm]:
+        for client in [self.vision, self.rk_auto, self.task3, self.camera3d, self.arm]:
             if not client.is_connected:
                 client.reconnect()
                 self._notify_state()
+
+    def _measure_robot_z(self, obj: dict) -> float | None:
+        """根据配置选择高度链路，返回给机器人使用的 Z 修正。"""
+        import config
+
+        if config.HEIGHT_SOURCE == "rk_auto":
+            request_obj = self._build_rk_auto_object(obj)
+            resp = self.rk_auto.measure_objects([request_obj])
+            if not resp or not resp.get("ok"):
+                logger.warn(f"RK auto 测高失败: {resp}")
+                return None
+            results = resp.get("results") or []
+            if not results:
+                logger.warn("RK auto 响应没有 results")
+                return None
+            first = results[0]
+            z = first.get("robot_z_mm", first.get("height_mm"))
+            logger.success(f"[RK auto] {request_obj} -> Z={z}")
+            return float(z)
+
+        return self.camera3d.get_height(obj["x"], obj["y"])
+
+    def _build_rk_auto_object(self, obj: dict) -> dict:
+        """把 VS 目标转换成 RK auto 可理解的测高对象。"""
+        out = {
+            "id": obj.get("id"),
+            "class_id": obj.get("class_id"),
+            "label": obj.get("label"),
+        }
+        for key in ("position_id", "u", "v", "radius_px", "x", "y", "w", "h"):
+            if key in obj:
+                out[key] = obj[key]
+        if len([v for v in out.values() if v is not None]) <= 1:
+            out["position_id"] = obj.get("id")
+        return {k: v for k, v in out.items() if v is not None}
 
     # ---------- 配置热更新 ----------
 
@@ -225,6 +278,8 @@ class Coordinator:
 
         # 断开旧连接
         self.vision.disconnect()
+        self.rk_auto.disconnect()
+        self.task3.disconnect()
         self.camera3d.disconnect()
         self.arm.disconnect()
 
@@ -243,10 +298,15 @@ class Coordinator:
 
         # 用新 host/port 重建客户端
         from config import VISION_HOST, VISION_PORT, \
+            RK_AUTO_HOST, RK_AUTO_PORT, TASK3_HOST, TASK3_PORT, \
             CAMERA3D_HOST, CAMERA3D_PORT, ARM_HOST, ARM_PORT
 
         self.vision.host = VISION_HOST
         self.vision.port = VISION_PORT
+        self.rk_auto.host = RK_AUTO_HOST
+        self.rk_auto.port = RK_AUTO_PORT
+        self.task3.host = TASK3_HOST
+        self.task3.port = TASK3_PORT
         self.camera3d.host = CAMERA3D_HOST
         self.camera3d.port = CAMERA3D_PORT
         self.arm.host = ARM_HOST
@@ -256,6 +316,8 @@ class Coordinator:
 
         # 重新连接
         self.vision.connect()
+        self.rk_auto.connect()
+        self.task3.connect()
         self.camera3d.connect()
         self.arm.connect()
 
