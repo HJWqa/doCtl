@@ -37,12 +37,8 @@ def init_socketio(coordinator):
         "data": data_str,
     }))
 
-    # 数据收发推送 (每个设备)
+    # 数据收发推送 (主控实际对外设备)
     for client, dev_id in [
-        (coordinator.vision,    "vision"),
-        (coordinator.rk_auto,   "rk_auto"),
-        (coordinator.task3,     "task3"),
-        (coordinator.camera3d,  "camera3d_legacy"),
         (coordinator.arm,       "arm"),
     ]:
         def make_handler(c, did):

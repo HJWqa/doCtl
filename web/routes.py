@@ -40,6 +40,29 @@ def api_logs():
     return jsonify({"logs": logger.get_recent(n)})
 
 
+@api.route("/api/script")
+def api_get_script():
+    """读取当前比赛剧本原文"""
+    if _coordinator is None:
+        return jsonify({"error": "coordinator not initialized"}), 503
+    path = _coordinator.script.script_path
+    return jsonify({"path": str(path), "text": path.read_text(encoding="utf-8")})
+
+
+@api.route("/api/script", methods=["POST"])
+def api_save_script():
+    """保存比赛剧本原文"""
+    if _coordinator is None:
+        return jsonify({"error": "coordinator not initialized"}), 503
+    if _coordinator.script.is_running:
+        return jsonify({"status": "error", "message": "请先停止 Script 主控再保存剧本"}), 409
+    data = request.get_json(silent=True) or {}
+    text = str(data.get("text", ""))
+    path = _coordinator.script.script_path
+    path.write_text(text, encoding="utf-8")
+    return jsonify({"status": "ok", "path": str(path)})
+
+
 @api.route("/api/control", methods=["POST"])
 def api_control():
     """控制指令: start / stop / pause / resume / home"""
@@ -56,7 +79,6 @@ def api_control():
         "resume": lambda: _coordinator.script.resume(),
         "legacy_start": lambda: _coordinator.start(),
         "legacy_stop": lambda: _coordinator.stop(),
-        "home": lambda: _coordinator.arm.home(),
     }
 
     if cmd not in handlers:
@@ -67,21 +89,6 @@ def api_control():
         return jsonify({"status": "ok", "cmd": cmd})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
-
-
-@api.route("/api/arm/move", methods=["POST"])
-def api_arm_move():
-    """手动控制机械臂移动到指定位姿"""
-    if _coordinator is None:
-        return jsonify({"error": "coordinator not initialized"}), 503
-
-    data = request.get_json(silent=True) or {}
-    pose = data.get("pose")
-    if not pose or not all(k in pose for k in ["x", "y", "z", "rx", "ry", "rz"]):
-        return jsonify({"error": "pose requires x,y,z,rx,ry,rz"}), 400
-
-    result = _coordinator.arm.move(pose)
-    return jsonify(result or {"status": "error", "message": "no response"})
 
 
 # ---------- 配置管理 ----------

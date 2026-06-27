@@ -4,6 +4,7 @@ import socket
 import socketserver
 import threading
 import time
+from collections import deque
 from pathlib import Path
 from typing import Any, Callable
 
@@ -40,6 +41,8 @@ class ScriptService:
         self.last_error = ""
         self.last_rx = ""
         self.last_tx = ""
+        self.current_step = "待机"
+        self._events = deque(maxlen=200)
 
     def start(self) -> None:
         if self._running:
@@ -108,6 +111,8 @@ class ScriptService:
                 "last_error": self.last_error,
                 "last_rx": self.last_rx,
                 "last_tx": self.last_tx,
+                "current_step": self.current_step,
+                "events": list(self._events),
             }
 
     @property
@@ -119,6 +124,7 @@ class ScriptService:
         return self._paused
 
     def handle_line(self, line: str) -> str:
+        self._record("VS 收到", line)
         self._emit("rx", line)
         self.last_rx = line
         if self._paused:
@@ -141,6 +147,7 @@ class ScriptService:
         mode = str(msg.fields[2]) if len(msg.fields) > 2 else "all"
         if task not in {"A", "B"}:
             return self._reply(["NG", "start", "bad_task", task])
+        self._record("握手", f"Task {task} / {mode}")
         return self._reply(["start", task, mode])
 
     def _handle_task_a(self, line: str) -> str:
@@ -149,6 +156,7 @@ class ScriptService:
         line = _normalize_task_a_line(line)
         mode = _task_mode(line, default="all")
         result = dry_run_task_a(script, cfg, mode=mode, vs_message=line)
+        self._record("Task A", f"解析 {len(result['processed_objects'])} 个物块")
         ok = self._send_bot_commands(result["bot_tx"])
         self._mark_task(ok, "" if ok else "bot command failed")
         return self._reply(["OK" if ok else "NG", "A", result.get("processed_objects") and len(result["processed_objects"])])
@@ -157,20 +165,24 @@ class ScriptService:
         script = self._load_script()
         cfg = (script.get("tasks") or {}).get("B") or {}
         result = dry_run_task_b(script, cfg, mode="all", vs_message=line)
+        self._record("Task B", "请求 3D 高度")
         z_rx = self._request_3d(cfg)
         z_values = _parse_task_b_z(z_rx)
         cfg = dict(cfg)
         cfg["sample_3d_z"] = z_values
         result = dry_run_task_b(script, cfg, mode="all", vs_message=line)
+        self._record("Task B", f"3D 返回 Z={z_values}")
         ok = self._send_bot_commands(result["bot_tx"])
         self._mark_task(ok, "" if ok else "bot command failed")
         return self._reply(["OK" if ok else "NG", "B", len(result["bot_tx"])])
 
     def _request_3d(self, cfg: dict[str, Any]) -> str:
-        host = str(cfg.get("three_d_host", "192.168.173.2"))
-        port = int(cfg.get("three_d_port", 9303))
-        message = str(cfg.get("three_d_request", "B;start;")).rstrip()
-        timeout_s = float(cfg.get("three_d_timeout_s", 5.0))
+        script = self._load_script()
+        three_d = script.get("three_d", {})
+        host = str(three_d.get("host", cfg.get("three_d_host", "192.168.173.2")))
+        port = int(three_d.get("port", cfg.get("three_d_port", 9303)))
+        message = str(three_d.get("task_b_request", cfg.get("three_d_request", "B;start;"))).rstrip()
+        timeout_s = float(three_d.get("timeout_s", cfg.get("three_d_timeout_s", 5.0)))
         self._emit("tx", f"3D {host}:{port} {message}")
         with socket.create_connection((host, port), timeout=timeout_s) as conn:
             stream = conn.makefile("rwb")
@@ -189,6 +201,7 @@ class ScriptService:
         retry = int(bot.get("retry", 2))
         if bool(bot.get("dry_run", False)):
             for command in commands:
+                self._record("Bot dry-run", command)
                 self._emit("tx", f"BOT dry-run {command}")
                 self._emit("rx", "BOT OK")
             return True
@@ -202,6 +215,7 @@ class ScriptService:
     def _send_bot_command(self, stream: Any, command: str, timeout_s: float, retry: int) -> bool:
         for attempt in range(1, retry + 2):
             self._emit("tx", f"BOT {command}")
+            self._record("Bot 发送", command)
             stream.write((command.rstrip() + "\n").encode("utf-8"))
             stream.flush()
             started = time.monotonic()
@@ -213,6 +227,7 @@ class ScriptService:
                 if response:
                     self._emit("rx", f"BOT {response}")
                     if response.upper().startswith("OK"):
+                        self._record("Bot OK", command)
                         return True
                     break
             self._emit("err", f"BOT retry {attempt}/{retry + 1}: {command}")
@@ -237,6 +252,7 @@ class ScriptService:
             else:
                 self.fail_tasks += 1
                 self.last_error = error
+        self._record("完成" if ok else "失败", error or "任务完成", "ok" if ok else "error")
         self._notify_state()
 
     def _emit(self, direction: str, data: str) -> None:
@@ -253,6 +269,17 @@ class ScriptService:
                 callback(status)
             except Exception:
                 pass
+
+    def _record(self, step: str, detail: str, level: str = "info") -> None:
+        self.current_step = step
+        event = {
+            "time": time.strftime("%H:%M:%S"),
+            "step": step,
+            "detail": detail,
+            "level": level,
+        }
+        self._events.append(event)
+        self._notify_state()
 
     def _make_handler(self) -> type[socketserver.StreamRequestHandler]:
         class Handler(socketserver.StreamRequestHandler):

@@ -116,11 +116,8 @@ class Coordinator:
                 "success_tasks": self.success_tasks,
                 "fail_tasks": self.fail_tasks,
                 "devices": {
-                    "vision": self.vision.is_connected,
-                    "three_d_http": self._three_d_http_ok(),
-                    "rk_auto": self.rk_auto.is_connected,
-                    "task3": self.task3.is_connected,
-                    "camera3d_legacy": self.camera3d.is_connected,
+                    "vision": self.script.is_running,
+                    "three_d_tcp": self.script.is_running,
                     "arm": self.arm.is_connected,
                     "script": self.script.is_running,
                 },

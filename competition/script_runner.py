@@ -125,7 +125,8 @@ def dry_run_task_b(
             offset += 1
         objects.append(obj)
 
-    three_d_tx = str(cfg.get("three_d_request", format_message(["B", "start"])))
+    three_d = script.get("three_d", {})
+    three_d_tx = str(three_d.get("task_b_request", cfg.get("three_d_request", format_message(["B", "start"]))))
     z_values = list(cfg.get("sample_3d_z", [7, 8]))
     three_d_rx = format_message(["B", *z_values])
     destinations = cfg.get("destinations", {})
@@ -148,8 +149,8 @@ def dry_run_task_b(
         "task": "B",
         "vs_rx": raw,
         "objects": objects,
-        "three_d_host": cfg.get("three_d_host", "192.168.173.2"),
-        "three_d_port": cfg.get("three_d_port", 9303),
+        "three_d_host": three_d.get("host", cfg.get("three_d_host", "192.168.173.2")),
+        "three_d_port": three_d.get("port", cfg.get("three_d_port", 9303)),
         "three_d_tx": three_d_tx,
         "three_d_rx": three_d_rx,
         "bot_tx": commands,
