@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dobot 总控面板</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body>
+
+    <!-- ===== 顶栏 ===== -->
+    <header class="topbar">
+        <div class="topbar-left">
+            <h1>🤖 Dobot 智能拾取总控</h1>
+            <span class="badge" id="badge-mode">模拟模式</span>
+        </div>
+        <div class="topbar-right">
+            <span id="clock">--</span>
+        </div>
+    </header>
+
+    <!-- ===== 主布局 ===== -->
+    <main class="main-grid">
+
+        <!-- 左侧: 设备状态 + 控制 -->
+        <section class="panel panel-left">
+
+            <!-- 设备状态卡片 -->
+            <div class="card-group">
+                <div class="card device-card" id="card-vision">
+                    <div class="card-icon">📷</div>
+                    <div class="card-body">
+                        <div class="card-title">Vision Studio</div>
+                        <div class="card-sub">127.0.0.1:9550</div>
+                    </div>
+                    <div class="card-status" id="status-vision">○</div>
+                </div>
+
+                <div class="card device-card" id="card-camera">
+                    <div class="card-icon">🔬</div>
+                    <div class="card-body">
+                        <div class="card-title">3D 深度相机</div>
+                        <div class="card-sub">192.168.173.2:9551</div>
+                    </div>
+                    <div class="card-status" id="status-camera">○</div>
+                </div>
+
+                <div class="card device-card" id="card-arm">
+                    <div class="card-icon">🦾</div>
+                    <div class="card-body">
+                        <div class="card-title">Dobot 机械臂</div>
+                        <div class="card-sub">192.168.200.1:9552</div>
+                    </div>
+                    <div class="card-status" id="status-arm">○</div>
+                </div>
+            </div>
+
+            <!-- 控制按钮 -->
+            <div class="btn-group">
+                <button class="btn btn-start" id="btn-start" onclick="sendControl('start')">
+                    ▶ 启动
+                </button>
+                <button class="btn btn-pause" id="btn-pause" onclick="sendControl('pause')" disabled>
+                    ⏸ 暂停
+                </button>
+                <button class="btn btn-resume" id="btn-resume" onclick="sendControl('resume')" disabled>
+                    ▶ 恢复
+                </button>
+                <button class="btn btn-stop" id="btn-stop" onclick="sendControl('stop')" disabled>
+                    ⏹ 停止
+                </button>
+            </div>
+            <div class="btn-group">
+                <button class="btn btn-home" onclick="sendControl('home')">
+                    🏠 机械臂回零
+                </button>
+            </div>
+
+            <!-- 设置面板 -->
+            <div class="settings-panel">
+                <div class="set-title" onclick="toggleSettings()">
+                    ⚙ 网络设置 <span id="set-arrow">▼</span>
+                </div>
+                <div class="set-body" id="set-body">
+                    <div class="set-row">
+                        <label>Vision IP</label>
+                        <input type="text" id="cfg-vision-host" placeholder="127.0.0.1">
+                        <label>Port</label>
+                        <input type="number" id="cfg-vision-port" placeholder="9550">
+                        <button class="btn-test" onclick="testConn('vision')">测试</button>
+                        <span class="test-result" id="test-vision"></span>
+                    </div>
+                    <div class="set-row">
+                        <label>3D相机 IP</label>
+                        <input type="text" id="cfg-camera-host" placeholder="192.168.173.2">
+                        <label>Port</label>
+                        <input type="number" id="cfg-camera-port" placeholder="9551">
+                        <button class="btn-test" onclick="testConn('camera')">测试</button>
+                        <span class="test-result" id="test-camera"></span>
+                    </div>
+                    <div class="set-row">
+                        <label>机械臂 IP</label>
+                        <input type="text" id="cfg-arm-host" placeholder="192.168.200.1">
+                        <label>Port</label>
+                        <input type="number" id="cfg-arm-port" placeholder="9552">
+                        <button class="btn-test" onclick="testConn('arm')">测试</button>
+                        <span class="test-result" id="test-arm"></span>
+                    </div>
+                    <div class="set-row set-row-check">
+                        <label>
+                            <input type="checkbox" id="cfg-mock">
+                            模拟模式 (Mock)
+                        </label>
+                    </div>
+                    <div class="set-actions">
+                        <button class="btn btn-home" onclick="saveConfig()">💾 保存并重连</button>
+                        <span id="cfg-msg"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 统计 -->
+            <div class="stats-grid">
+                <div class="stat">
+                    <div class="stat-num" id="stat-total">0</div>
+                    <div class="stat-label">总任务</div>
+                </div>
+                <div class="stat stat-ok">
+                    <div class="stat-num" id="stat-ok">0</div>
+                    <div class="stat-label">成功</div>
+                </div>
+                <div class="stat stat-fail">
+                    <div class="stat-num" id="stat-fail">0</div>
+                    <div class="stat-label">失败</div>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- 右侧: 工作流可视化 + 日志 -->
+        <section class="panel panel-right">
+
+            <!-- 工作流步骤 -->
+            <div class="workflow">
+                <div class="wf-title">📋 任务流水线</div>
+                <div class="wf-steps">
+                    <div class="wf-step" id="wf-vision">
+                        <div class="wf-num">①</div>
+                        <div class="wf-label">2D 视觉检测</div>
+                        <div class="wf-coord" id="coord-xy">--</div>
+                    </div>
+                    <div class="wf-arrow">→</div>
+                    <div class="wf-step" id="wf-camera">
+                        <div class="wf-num">②</div>
+                        <div class="wf-label">3D 高度查询</div>
+                        <div class="wf-coord" id="coord-z">--</div>
+                    </div>
+                    <div class="wf-arrow">→</div>
+                    <div class="wf-step" id="wf-fusion">
+                        <div class="wf-num">③</div>
+                        <div class="wf-label">坐标融合</div>
+                        <div class="wf-coord" id="coord-pose">--</div>
+                    </div>
+                    <div class="wf-arrow">→</div>
+                    <div class="wf-step" id="wf-arm">
+                        <div class="wf-num">④</div>
+                        <div class="wf-label">机械臂执行</div>
+                        <div class="wf-coord" id="coord-result">--</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 通信数据监控 -->
+            <div class="traffic-panel" id="traffic-panel">
+                <div class="traffic-title">
+                    📡 通信数据监控
+                    <span class="traffic-actions">
+                        <button class="btn-clear" onclick="clearTraffic()">清空当前</button>
+                        <label class="traffic-filter"><input type="checkbox" id="traffic-tx" checked onchange="filterTraffic()">TX</label>
+                        <label class="traffic-filter"><input type="checkbox" id="traffic-rx" checked onchange="filterTraffic()">RX</label>
+                        <span class="traffic-count" id="traffic-count">0</span>
+                    </span>
+                </div>
+                <div class="traffic-tabs" role="tablist" aria-label="通信设备">
+                    <button class="traffic-tab active" type="button" data-device="all" onclick="setTrafficDevice('all')" role="tab" aria-selected="true">
+                        全部 <span id="traffic-tab-count-all">0</span>
+                    </button>
+                    <button class="traffic-tab" type="button" data-device="vision" onclick="setTrafficDevice('vision')" role="tab" aria-selected="false">
+                        2D视觉 <span id="traffic-tab-count-vision">0</span>
+                    </button>
+                    <button class="traffic-tab" type="button" data-device="camera3d" onclick="setTrafficDevice('camera3d')" role="tab" aria-selected="false">
+                        3D相机 <span id="traffic-tab-count-camera3d">0</span>
+                    </button>
+                    <button class="traffic-tab" type="button" data-device="arm" onclick="setTrafficDevice('arm')" role="tab" aria-selected="false">
+                        机械臂 <span id="traffic-tab-count-arm">0</span>
+                    </button>
+                </div>
+                <div class="traffic-container" id="traffic-container">
+                    <div class="traffic-line traffic-placeholder">等待数据...</div>
+                </div>
+            </div>
+
+            <!-- 手动控制 -->
+            <div class="manual-panel">
+                <div class="man-title">🕹 手动位姿控制</div>
+                <div class="man-form">
+                    <div class="man-row">
+                        <label>X</label><input type="number" id="man-x" value="200" step="0.1">
+                        <label>Y</label><input type="number" id="man-y" value="100" step="0.1">
+                        <label>Z</label><input type="number" id="man-z" value="50" step="0.1">
+                    </div>
+                    <div class="man-row">
+                        <label>RX</label><input type="number" id="man-rx" value="180" step="0.1">
+                        <label>RY</label><input type="number" id="man-ry" value="0" step="0.1">
+                        <label>RZ</label><input type="number" id="man-rz" value="0" step="0.1">
+                    </div>
+                    <button class="btn btn-home" onclick="manualMove()">🎯 移动到此处</button>
+                </div>
+            </div>
+
+            <!-- 日志 -->
+            <div class="log-panel">
+                <div class="log-title">📜 运行日志</div>
+                <div class="log-container" id="log-container">
+                    <div class="log-line log-info">等待启动...</div>
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

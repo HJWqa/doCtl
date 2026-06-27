@@ -1,0 +1,62 @@
+# 离线流程脚本示例
+# 调试人员通常只需要改这个文件。
+
+name = "offline_pick_demo"
+description = "模拟 Vision -> 3D 相机 -> 坐标融合 -> 机械臂执行"
+
+# 整个脚本重复次数；命令行 --repeat 会覆盖这里。
+repeat = 1
+
+# 每个 cycle 之间的等待时间，单位秒。
+cycle_interval_sec = 0.2
+
+# true: 某一轮失败就停止；false: 继续跑后续轮次。
+stop_on_error = false
+
+# JSONL 结果输出路径。留空则只打印控制台日志。
+output_jsonl = "offline/runs/offline_pick_demo.jsonl"
+
+
+[[cycles]]
+name = "正常抓取 1"
+note = "Vision 检出一个目标，3D 返回高度，机械臂成功"
+
+vision_objects = [
+  { id = 1, x = 250.0, y = 150.0, angle = 30.0 },
+]
+
+camera_z = 24.5
+arm_status = "ok"
+arm_message = "pick done"
+
+
+[[cycles]]
+name = "空视野"
+note = "Vision 没有目标，本轮跳过 3D 和机械臂"
+
+vision_objects = []
+
+
+[[cycles]]
+name = "3D 测高失败"
+note = "Vision 有目标，但 3D 相机返回错误"
+
+vision_objects = [
+  { id = 2, x = 318.2, y = 181.5, angle = -12.0 },
+]
+
+camera_status = "error"
+camera_message = "height not found"
+
+
+[[cycles]]
+name = "机械臂失败"
+note = "前两步成功，但机械臂执行失败"
+
+vision_objects = [
+  { id = 3, x = 180.0, y = 220.0, angle = 0.0 },
+]
+
+camera_z = 36.8
+arm_status = "error"
+arm_message = "target out of range"
