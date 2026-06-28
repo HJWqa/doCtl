@@ -8,17 +8,8 @@
 # - 现场如果 VS 增减字段，优先改各任务的 vision_fields 和 min_value_fields。
 
 [global]
-# VS 指令处理预期超时。当前主控是 Client 长连接，这里主要作为人工参考。
-vs_timeout_s = 3
-
-# Bot 单条指令等待 OK 的超时时间；通常要比 VS 的等待时间更长。
-bot_timeout_s = 8
-
-# Bot 单条指令失败后的重发次数。2 表示最多发送 3 次：首次 + 2 次重试。
-bot_retry = 2
-
-# 3D 侧 Task B 测高请求超时。
-three_d_timeout_s = 5
+# 注意：[global] 下的值是给人看的参考，代码不读。
+# 实际生效的配置在各段里：[vision] / [bot] / [three_d] / [tasks.A] / [tasks.B]
 
 [vision]
 # Vision Studio 的 TCP 服务地址。
@@ -32,12 +23,14 @@ reconnect_s = 1
 
 [bot]
 # Dobot Bot 的 TCP 服务地址。
-host = "127.0.0.1"
+host = "192.168.200.1"
 port = 20001
 
 # 单条 Bot 命令等待 OK 的超时和重试次数。
-timeout_s = 8
-retry = 2
+# GP 模式一条指令包含全部动作，执行时间很长，timeout 需要足够大。
+# 建议 retry = 0，避免 GP 指令超时重发导致反复执行。
+timeout_s = 60
+retry = 0
 
 # true 时只在 Web/日志里显示将要发送的 Bot 命令，不真实连接机械臂。
 dry_run = false
@@ -58,12 +51,12 @@ task_b_request = "B;start;"
 name = "Task 2 blocks"
 
 # 用于 dry-run 或现场对照的 VS 样例。
-# 约定：A;all;圆X;圆Y;正方体X;正方体Y;长方体X;长方体Y;
-sample_vs_message = "A;all;1;2;3;4;5;6;"
+# 约定：A;all;物1X;物1Y;物2X;物2Y;物3X;物3Y;物4X;物4Y;物5X;物5Y;
+sample_vs_message = "A;all;1;2;3;4;5;6;7;8;9;10;"
 
 # VS 坐标字段最少数量，不包含前面的 A 和 all。
 # 如果现场 VS 增加更多物体/字段，这里和 vision_fields 一起改。
-min_value_fields = 6
+min_value_fields = 10
 
 # true：一条 VS 消息里的多个物体依次处理；false：只处理第一个物体。
 multi_object = true
@@ -80,7 +73,7 @@ pick_rpy = [180, 0, 0]
 place_rpy = [180, 0, 0]
 
 # Task A 完成后回到停靠点。格式：X,Y,Z,Rx,Ry,Rz。
-dock = [11, 12, 150, 180, 0, 0]
+dock = [253, 220, 185, 180, 0, 0]
 
 [[tasks.A.vision_fields]]
 # 圆柱体字段：从 VS 消息里按顺序取 x,y。
@@ -100,38 +93,54 @@ type = "rectangle"
 label = "长方体"
 fields = ["x", "y"]
 
+[[tasks.A.vision_fields]]
+# 物体4字段：从 VS 消息里按顺序取 x,y。
+type = "obj4"
+label = "物体4"
+fields = ["x", "y"]
+
+[[tasks.A.vision_fields]]
+# 物体5字段：从 VS 消息里按顺序取 x,y。
+type = "obj5"
+label = "物体5"
+fields = ["x", "y"]
+
 [tasks.A.stack]
 # 码垛基础 Z。第 N 个物块会在此基础上叠加前序高度。
-base_z = 123
+base_z = 105
 
 # 未单独配置高度的物块，使用这个默认高度。
-default_block_height_mm = 20
+default_block_height_mm = 5
 
 # 未单独配置放置 XY 的物块，放到这个位置。
 default_place_xy = [9, 10]
 
 [tasks.A.objects.circle]
 # 圆柱体高度和放置点。
-height_mm = 20
+height_mm = 5
 place_xy = [9, 10]
 
 [tasks.A.objects.square]
 # 正方体高度和放置点。
-height_mm = 25
+height_mm = 5
 place_xy = [9, 10]
 
 [tasks.A.objects.rectangle]
 # 长方体高度和放置点。
-height_mm = 15
+height_mm = 5
+place_xy = [9, 10]
+
+[tasks.A.objects.obj4]
+height_mm = 5
+place_xy = [9, 10]
+
+[tasks.A.objects.obj5]
+height_mm = 5
 place_xy = [9, 10]
 
 [tasks.B]
 # Task 3：YOLO 贴图物体，VS 给平面 XY，RK 3D 给 Z，Bot 执行 GP。
 name = "Task 3 wrench/nut"
-
-# 前置位姿：收到 B 指令后，先移动到此位姿，再向 3D 发送 start 请求。
-# 格式：[X, Y, Z, Rx, Ry, Rz]
-pre_pose = [-27.047, -227.9198, 236.033, 180, 0, 0]
 
 # VS 样例：B;扳手X;扳手Y;螺母X;螺母Y;
 sample_vs_message = "B;1;2;3;4;"

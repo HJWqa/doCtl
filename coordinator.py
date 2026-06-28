@@ -115,12 +115,6 @@ class Coordinator:
                 "total_tasks": self.total_tasks,
                 "success_tasks": self.success_tasks,
                 "fail_tasks": self.fail_tasks,
-                "devices": {
-                    "vision": self.script.vision_connected,
-                    "three_d_tcp": self.script.three_d_last_ok,
-                    "arm": self.script.bot_last_ok,
-                    "script": self.script.is_running,
-                },
                 "script": self.script.get_status(),
                 "arm_busy": self.arm.is_busy,
             }

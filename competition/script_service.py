@@ -150,23 +150,8 @@ class ScriptService:
 
     @property
     def is_running(self) -> bool:
+        """外部 routes.py / ctl.py 会读，判断主控是否运行中。"""
         return self._running
-
-    @property
-    def is_paused(self) -> bool:
-        return self._paused
-
-    @property
-    def vision_connected(self) -> bool:
-        return self._vision_connected
-
-    @property
-    def three_d_last_ok(self) -> bool:
-        return self._three_d_last_ok
-
-    @property
-    def bot_last_ok(self) -> bool:
-        return self._bot_last_ok
 
     def handle_line(self, line: str) -> str:
         self._record("VS 收到", line)
@@ -252,6 +237,7 @@ class ScriptService:
         return response
 
     def _send_bot_commands(self, commands: list[str]) -> bool:
+        """向 Bot 发送指令序列。每条指令独立建连，重试时新建连接。"""
         script = self._load_script()
         bot = script.get("bot", {})
         host = str(bot.get("host", "192.168.200.1"))
@@ -265,38 +251,53 @@ class ScriptService:
                 self._emit("arm", "rx", "OK")
             self._bot_last_ok = True
             return True
-        try:
-            with socket.create_connection((host, port), timeout=timeout_s) as conn:
-                stream = conn.makefile("rwb")
-                for command in commands:
-                    if not self._send_bot_command(stream, command, timeout_s, retry):
-                        self._bot_last_ok = False
-                        return False
-            self._bot_last_ok = True
-            return True
-        except OSError:
-            self._bot_last_ok = False
-            raise
+        for command in commands:
+            if not self._send_bot_command_reconnect(host, port, command, timeout_s, retry):
+                self._bot_last_ok = False
+                return False
+        self._bot_last_ok = True
+        return True
 
-    def _send_bot_command(self, stream: Any, command: str, timeout_s: float, retry: int) -> bool:
+    def _send_bot_command_reconnect(
+        self, host: str, port: int, command: str, timeout_s: float, retry: int,
+    ) -> bool:
+        """发送单条指令，支持重试。每次尝试新建 TCP 连接，避免复用超时后的坏 socket。"""
+        retry_delay_s = 0.5
         for attempt in range(1, retry + 2):
             self._emit("arm", "tx", command)
             self._record("Bot 发送", command)
-            stream.write((command.rstrip() + "\n").encode("utf-8"))
-            stream.flush()
-            started = time.monotonic()
-            while time.monotonic() - started < timeout_s:
-                try:
-                    response = stream.readline().decode("utf-8", errors="replace").strip()
-                except socket.timeout:
-                    break
-                if response:
-                    self._emit("arm", "rx", response)
-                    if response.upper().startswith("OK"):
-                        self._record("Bot OK", command)
-                        return True
-                    break
-            self._emit("arm", "err", f"retry {attempt}/{retry + 1}: {command}")
+            try:
+                with socket.create_connection((host, port), timeout=timeout_s) as conn:
+                    conn.settimeout(timeout_s)
+                    stream = conn.makefile("rwb")
+                    stream.write((command.rstrip() + "\n").encode("utf-8"))
+                    stream.flush()
+                    started = time.monotonic()
+                    while time.monotonic() - started < timeout_s:
+                        try:
+                            raw = stream.readline()
+                        except (socket.timeout, OSError, ValueError) as e:
+                            self._emit("arm", "err",
+                                       f"读取异常 (attempt {attempt}): {e}")
+                            break
+                        if not raw:
+                            self._emit("arm", "err", "Bot 连接已关闭 (EOF)")
+                            break
+                        response = raw.decode("utf-8", errors="replace").strip()
+                        if response:
+                            self._emit("arm", "rx", response)
+                            if response.upper().startswith("OK"):
+                                self._record("Bot OK", command)
+                                return True
+                            self._emit("arm", "err", f"Bot 返回非 OK: {response}")
+                            break
+                    else:
+                        self._emit("arm", "err",
+                                   f"无响应 (attempt {attempt}/{retry + 1}, waited {timeout_s}s): {command[:60]}")
+            except OSError as e:
+                self._emit("arm", "err", f"连接失败 (attempt {attempt}): {e}")
+            if attempt <= retry:
+                time.sleep(retry_delay_s)
         return False
 
     def _load_script(self) -> dict[str, Any]:
