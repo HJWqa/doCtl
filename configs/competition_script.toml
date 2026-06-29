@@ -51,12 +51,11 @@ task_b_request = "B;start;"
 name = "Task 2 blocks"
 
 # 用于 dry-run 或现场对照的 VS 样例。
-# 约定：A;all;物1X;物1Y;物2X;物2Y;物3X;物3Y;物4X;物4Y;物5X;物5Y;
-sample_vs_message = "A;all;1;2;3;4;5;6;7;8;9;10;"
+# 约定：A;all;圆X;圆Y;正方体X;正方体Y;
+sample_vs_message = "A;all;1;2;3;4;"
 
 # VS 坐标字段最少数量，不包含前面的 A 和 all。
-# 如果现场 VS 增加更多物体/字段，这里和 vision_fields 一起改。
-min_value_fields = 10
+min_value_fields = 4
 
 # true：一条 VS 消息里的多个物体依次处理；false：只处理第一个物体。
 multi_object = true
@@ -87,24 +86,6 @@ type = "square"
 label = "正方体"
 fields = ["x", "y"]
 
-[[tasks.A.vision_fields]]
-# 长方体字段：从 VS 消息里按顺序取 x,y。
-type = "rectangle"
-label = "长方体"
-fields = ["x", "y"]
-
-[[tasks.A.vision_fields]]
-# 物体4字段：从 VS 消息里按顺序取 x,y。
-type = "obj4"
-label = "物体4"
-fields = ["x", "y"]
-
-[[tasks.A.vision_fields]]
-# 物体5字段：从 VS 消息里按顺序取 x,y。
-type = "obj5"
-label = "物体5"
-fields = ["x", "y"]
-
 [tasks.A.stack]
 # 码垛基础 Z。第 N 个物块会在此基础上叠加前序高度。
 base_z = 105
@@ -125,60 +106,36 @@ place_xy = [9, 10]
 height_mm = 5
 place_xy = [9, 10]
 
-[tasks.A.objects.rectangle]
-# 长方体高度和放置点。
-height_mm = 5
-place_xy = [9, 10]
-
-[tasks.A.objects.obj4]
-height_mm = 5
-place_xy = [9, 10]
-
-[tasks.A.objects.obj5]
-height_mm = 5
-place_xy = [9, 10]
-
 [tasks.B]
-# Task 3：YOLO 贴图物体，VS 给平面 XY，RK 3D 给 Z，Bot 执行 GP。
-name = "Task 3 wrench/nut"
+# Task 3：单物体 GP 抓取。
+# 通信流程: VS→Ctl B;X;Y; → Ctl→3D B;start; → 3D→Ctl B;Z;destID; → Ctl→Bot GP;X;Y;Z;...;
+name = "Task 3"
 
-# VS 样例：B;扳手X;扳手Y;螺母X;螺母Y;
-sample_vs_message = "B;1;2;3;4;"
+# VS 样例 (dry-run 用)：B;X;Y;
+sample_vs_message = "B;2;3;"
 
-# dry-run 时使用的 3D Z 样例；真实运行时会被 RK 3D 返回值覆盖。
-sample_3d_z = [7, 8]
+# 3D 返回样例 (dry-run 用)：[Z, destID]
+sample_3d_z = [15, 0]
 
-# 桌面基础 Z。真实抓取 Z = base_table_z + RK 3D 返回的物体高度/修正值。
-base_table_z = 100
+# 桌面基础 Z。真实抓取 Z = base_table_z + 3D 返回的 Z。
+base_table_z = 105
 
 # 抓取和放置姿态 RPY。
 pick_rpy = [180, 0, 0]
 place_rpy = [180, 0, 0]
 
-# 没有单独配置目的地时使用的默认放置 XY。
+# 默认放置 XY（3D 返回的 destID 未匹配到对应目的地时使用）。
 default_dest_xy = [20, 30]
 
-# 可选停靠点。某个目标 include_dock=true 时，GP 后面会追加这个停靠点。
+# 可选停靠点。目的地 include_dock=true 时追加。
 dock = [11, 12, 150, 180, 0, 0]
 
-[[tasks.B.vision_fields]]
-# 扳手字段：从 VS 消息里按顺序取 x,y。
-type = "wrench"
-label = "扳手"
-fields = ["x", "y"]
-
-[[tasks.B.vision_fields]]
-# 螺母字段：从 VS 消息里按顺序取 x,y。
-type = "nut"
-label = "螺母"
-fields = ["x", "y"]
-
-[tasks.B.destinations.wrench]
-# 扳手放置 XY；不追加停靠点。
+[tasks.B.destinations.0]
+# 目的地 0：3D 返回 destID=0 时匹配
 xy = [20, 30]
 include_dock = false
 
-[tasks.B.destinations.nut]
-# 螺母放置 XY；完成后追加停靠点。
+[tasks.B.destinations.1]
+# 目的地 1：3D 返回 destID=1 时匹配
 xy = [50, 30]
 include_dock = true

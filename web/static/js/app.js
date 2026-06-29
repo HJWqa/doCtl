@@ -1,9 +1,15 @@
-const socket = io();
+// ============================================================
+// Dobot 总控面板 - 离线友好 · 零外部依赖
+// ============================================================
+
+// socket.io 客户端由本地静态文件提供 (无需 CDN)
+const socket = io({ reconnection: true, reconnectionDelay: 1000, reconnectionAttempts: Infinity });
 
 const MAX_TRAFFIC = 240;
 const trafficLines = [];
 let activeTrafficDevice = "all";
 let activeDebugTab = "traffic";
+let lastStatus = null;       // 缓存最近一次状态，离线时不丢 UI
 
 const trafficDeviceNames = {
     all: "全部",
@@ -14,16 +20,38 @@ const trafficDeviceNames = {
     arm: "Bot",
 };
 
+// ---------- 初始化 ----------
 document.addEventListener("DOMContentLoaded", () => {
     loadScript();
     updateClock();
     setInterval(updateClock, 1000);
 });
 
-socket.on("connect", () => console.log("[WS] connected"));
-socket.on("disconnect", () => updateAllDeviceStatus(false));
-socket.on("status", updateStatus);
+// ---------- Socket.IO 事件 ----------
+socket.on("connect", () => {
+    console.log("[WS] connected");
+    setConnectionStatus(true);
+    // 重连后如有缓存状态立即恢复
+    if (lastStatus) updateStatus(lastStatus);
+});
+
+socket.on("disconnect", () => {
+    console.log("[WS] disconnected");
+    setConnectionStatus(false);
+    updateAllDeviceStatus(false);
+});
+
+socket.on("connect_error", () => {
+    setConnectionStatus(false);
+});
+
+socket.on("status", status => {
+    lastStatus = status;          // 缓存状态
+    updateStatus(status);
+});
+
 socket.on("log", data => appendLog(data.level, data.msg, data.ts));
+
 socket.on("log_batch", data => {
     const container = document.getElementById("log-container");
     container.innerHTML = "";
@@ -32,6 +60,7 @@ socket.on("log_batch", data => {
         appendLogRaw(parsed.level, parsed.msg, parsed.ts);
     });
 });
+
 socket.on("data_traffic", evt => {
     const line = {
         time: new Date().toLocaleTimeString("zh-CN", { hour12: false }),
@@ -50,6 +79,23 @@ socket.on("data_traffic", evt => {
     }
 });
 
+// ---------- 连接状态指示 ----------
+function setConnectionStatus(connected) {
+    const badge = document.getElementById("badge-mode");
+    // 只在待机状态下覆盖显示连接状态，运行时仍显示运行状态
+    const running = lastStatus && lastStatus.script && lastStatus.script.running;
+    if (running) return;
+
+    if (!connected) {
+        badge.textContent = "离线";
+        badge.className = "badge badge-offline";
+    } else if (!lastStatus) {
+        badge.textContent = "待机";
+        badge.className = "badge";
+    }
+}
+
+// ---------- 状态更新 ----------
 function updateStatus(status) {
     const script = status.script || {};
     const running = !!script.running;
@@ -69,19 +115,20 @@ function updateStatus(status) {
     document.getElementById("stat-total").textContent = script.total_tasks || 0;
     document.getElementById("stat-ok").textContent = script.success_tasks || 0;
     document.getElementById("stat-fail").textContent = script.fail_tasks || 0;
-    document.getElementById("watch-current").textContent = `当前步骤：${script.current_step || "待机"}`;
+    document.getElementById("watch-current").textContent =
+        "当前步骤：" + (script.current_step || "待机");
     document.getElementById("watch-rx").textContent = script.last_rx || "--";
     document.getElementById("watch-tx").textContent = script.last_tx || "--";
 
     const vision = script.vision || {};
-    const visionText = `${vision.host || "127.0.0.1"}:${vision.port || 7930}`;
+    const visionText = (vision.host || "127.0.0.1") + ":" + (vision.port || 7930);
     document.getElementById("script-listen").textContent =
-        `${vision.connected ? "已连接" : (running ? "连接中" : "目标")} VS ${visionText}`;
+        (vision.connected ? "已连接" : (running ? "连接中" : "目标")) + " VS " + visionText;
     renderEvents(script.events || []);
 }
 
 function setDeviceStatus(name, connected) {
-    const status = document.getElementById(`status-${name}`);
+    const status = document.getElementById("status-" + name);
     if (!status) return;
     status.textContent = connected ? "● 在线" : "○ 离线";
     status.classList.toggle("on", !!connected);
@@ -114,26 +161,32 @@ function renderEvents(events) {
     }
     events.slice(-80).forEach(evt => {
         const row = document.createElement("div");
-        row.className = `event-row event-${evt.level || "info"}`;
+        row.className = "event-row event-" + (evt.level || "info");
         row.innerHTML = [
-            `<span class="event-time">${escapeHtml(evt.time || "")}</span>`,
-            `<span class="event-step">${escapeHtml(evt.step || "")}</span>`,
-            `<span class="event-detail">${escapeHtml(evt.detail || "")}</span>`,
+            '<span class="event-time">' + escapeHtml(evt.time || "") + '</span>',
+            '<span class="event-step">' + escapeHtml(evt.step || "") + '</span>',
+            '<span class="event-detail">' + escapeHtml(evt.detail || "") + '</span>',
         ].join("");
         container.appendChild(row);
     });
     container.scrollTop = container.scrollHeight;
 }
 
+// ---------- 控制指令（双通道：Socket + HTTP）----------
 function sendControl(cmd) {
-    socket.emit("control", { cmd });
+    // 优先走 WebSocket（低延迟）
+    if (socket.connected) {
+        socket.emit("control", { cmd: cmd });
+    }
+    // HTTP 兜底（即使 WS 断开也能发指令）
     fetch("/api/control", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cmd }),
+        body: JSON.stringify({ cmd: cmd }),
     }).catch(() => {});
 }
 
+// ---------- Script 读写 ----------
 function loadScript() {
     fetch("/api/script")
         .then(r => r.json())
@@ -143,7 +196,7 @@ function loadScript() {
             updateTargetsFromText(data.text || "");
             setScriptMsg("已读取", "ok");
         })
-        .catch(() => setScriptMsg("读取失败", "error"));
+        .catch(() => setScriptMsg("读取失败 (服务未连接)", "error"));
 }
 
 function saveScript() {
@@ -151,7 +204,7 @@ function saveScript() {
     fetch("/api/script", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text: text }),
     })
         .then(async r => ({ ok: r.ok, data: await r.json() }))
         .then(({ ok, data }) => {
@@ -162,7 +215,7 @@ function saveScript() {
             updateTargetsFromText(text);
             setScriptMsg("已保存", "ok");
         })
-        .catch(() => setScriptMsg("保存失败", "error"));
+        .catch(() => setScriptMsg("保存失败 (服务未连接)", "error"));
 }
 
 function setScriptMsg(text, cls) {
@@ -178,26 +231,28 @@ function updateTargetsFromText(text) {
     const visionPort = matchTomlValue(text, "vision", "port") || "7930";
     const botHost = matchTomlValue(text, "bot", "host") || "192.168.200.1";
     const botPort = matchTomlValue(text, "bot", "port") || "9552";
-    document.getElementById("script-listen").textContent = `目标 VS ${visionHost}:${visionPort}`;
-    document.getElementById("three-d-target").textContent = `${threeHost}:${threePort}`;
-    document.getElementById("bot-target").textContent = `${botHost}:${botPort}`;
+    document.getElementById("script-listen").textContent =
+        "目标 VS " + visionHost + ":" + visionPort;
+    document.getElementById("three-d-target").textContent = threeHost + ":" + threePort;
+    document.getElementById("bot-target").textContent = botHost + ":" + botPort;
 }
 
 function matchTomlValue(text, section, key) {
-    const re = new RegExp(`\\[${section}\\]([\\s\\S]*?)(?:\\n\\[|$)`);
+    const re = new RegExp("\\[" + section + "\\]([\\s\\S]*?)(?:\\n\\[|$)");
     const block = text.match(re);
     if (!block) return "";
-    const line = block[1].match(new RegExp(`^\\s*${key}\\s*=\\s*"?([^"\\n#]+)"?`, "m"));
+    const line = block[1].match(new RegExp("^\\s*" + key + "\\s*=\\s*\"?([^\"\\n#]+)\"?", "m"));
     return line ? line[1].trim() : "";
 }
 
+// ---------- Debug 标签页 ----------
 function setDebugTab(tab) {
     activeDebugTab = tab;
     document.querySelectorAll(".tab-btn").forEach(btn => {
         btn.classList.toggle("active", btn.dataset.tab === tab);
     });
     document.querySelectorAll(".tab-panel").forEach(panel => {
-        panel.classList.toggle("active", panel.id === `tab-${tab}`);
+        panel.classList.toggle("active", panel.id === "tab-" + tab);
     });
     if (tab === "traffic") renderTraffic();
 }
@@ -214,10 +269,10 @@ function renderTrafficLine(line) {
     el.dataset.device = line.deviceId;
     const dirMap = { tx: "TX", rx: "RX", info: "INFO", err: "ERR" };
     el.innerHTML = [
-        `<span class="traffic-time">${line.time}</span>`,
-        `<span class="traffic-device">${escapeHtml(trafficDeviceNames[line.deviceId] || line.device)}</span>`,
-        `<span class="traffic-dir ${line.direction}">${dirMap[line.direction] || line.direction}</span>`,
-        `<span class="traffic-data ${line.direction === "err" ? "is-error" : ""}">${escapeHtml(line.data)}</span>`,
+        '<span class="traffic-time">' + line.time + '</span>',
+        '<span class="traffic-device">' + escapeHtml(trafficDeviceNames[line.deviceId] || line.device) + '</span>',
+        '<span class="traffic-dir ' + line.direction + '">' + (dirMap[line.direction] || line.direction) + '</span>',
+        '<span class="traffic-data' + (line.direction === "err" ? " is-error" : "") + '">' + escapeHtml(line.data) + '</span>',
     ].join("");
     container.appendChild(el);
     while (container.children.length > MAX_TRAFFIC) container.firstChild.remove();
@@ -228,7 +283,8 @@ function renderTraffic() {
     const lines = trafficLines.filter(isTrafficLineVisible);
     container.innerHTML = "";
     if (!lines.length) {
-        container.innerHTML = `<div class="traffic-line traffic-placeholder">${trafficDeviceNames[activeTrafficDevice] || "当前设备"}暂无通信数据</div>`;
+        container.innerHTML = '<div class="traffic-line traffic-placeholder">' +
+            (trafficDeviceNames[activeTrafficDevice] || "当前设备") + '暂无通信数据</div>';
         updateTrafficCounts();
         return;
     }
@@ -276,7 +332,7 @@ function updateTrafficCounts() {
         if (Object.prototype.hasOwnProperty.call(counts, id)) counts[id]++;
     });
     Object.entries(counts).forEach(([device, count]) => {
-        const el = document.getElementById(`traffic-tab-count-${device}`);
+        const el = document.getElementById("traffic-tab-count-" + device);
         if (el) el.textContent = count;
     });
     document.getElementById("traffic-count").textContent = counts[activeTrafficDevice] ?? counts.all;
@@ -287,6 +343,7 @@ function normalizeDevice(device) {
     return device || "script";
 }
 
+// ---------- 日志 ----------
 function appendLog(level, msg, ts) {
     appendLogRaw(level, msg, ts);
     const container = document.getElementById("log-container");
@@ -295,8 +352,8 @@ function appendLog(level, msg, ts) {
 
 function appendLogRaw(level, msg, ts) {
     const el = document.createElement("div");
-    el.className = `log-line log-${String(level || "info").toLowerCase()}`;
-    el.textContent = `[${ts || ""}] ${msg}`;
+    el.className = "log-line log-" + String(level || "info").toLowerCase();
+    el.textContent = "[" + (ts || "") + "] " + msg;
     document.getElementById("log-container").appendChild(el);
 }
 
@@ -306,11 +363,13 @@ function parseLogLine(line) {
     return { ts: "", level: "INFO", msg: line };
 }
 
+// ---------- 时钟 ----------
 function updateClock() {
     document.getElementById("clock").textContent =
         new Date().toLocaleString("zh-CN", { hour12: false });
 }
 
+// ---------- 工具函数 ----------
 function escapeHtml(value) {
     const div = document.createElement("div");
     div.textContent = String(value ?? "");

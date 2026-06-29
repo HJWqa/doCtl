@@ -225,30 +225,33 @@ def dry_run_task_a(
 
 
 # ============================================================
-# Task B — 扳手/螺母抓取 (GP 模式)
+# Task B — 单物体抓取 (GP 模式)
 # ============================================================
 #
-# VS 消息格式 (在 TOML 的 [[tasks.B.vision_fields]] 定义):
-#   B;扳手X;扳手Y;螺母X;螺母Y;
+# 通信流程 (每条 VS 消息对应一个物体):
+#   VS  → Ctl:  B;X;Y;              ← VS 给出一组平面坐标
+#   Ctl → 3D:  B;start;            ← Ctl 向 3D 请求高度
+#   3D  → Ctl: B;Z;destID;         ← 3D 返回物体高度 Z 和目的地 ID
 #
-# 流程:
-#   1. (可选) MovJ 前置位姿          ← 先移动到观测位置
-#   2. 向 3D 发送 B;start;          ← 请求测高
-#   3. 3D 返回 B;扳手Z;螺母Z;       ← 获得各物体的 Z
-#   4. GP 扳手X 扳手Y Z pick_rpy destX destY destZ place_rpy [dock]
-#      GP 螺母X 螺母Y Z pick_rpy destX destY destZ place_rpy [dock]
+# GP 指令:
+#   GP;X;Y;actualZ;pickRpy;destX;destY;destZ;placeRpy;[dock]
+#   其中 actualZ = base_table_z + Z
 #
 # TOML 配置项 ([tasks.B] 及其子表):
 #   pre_pose          = [...]   # (可选) 前置位姿 [X,Y,Z,Rx,Ry,Rz]
-#   base_table_z      = 100     # 桌面基础 Z，实际抓取Z = base_table_z + 3D返回值
+#   base_table_z      = 100     # 桌面基础 Z，实际抓取Z = base_table_z + 3D返回的Z
 #   pick_rpy          = [...]   # 抓取姿态
 #   place_rpy         = [...]   # 放置姿态
-#   default_dest_xy   = [...]   # 默认放置 XY
+#   default_dest_xy   = [...]   # 默认放置 XY（3D 返回的 destID 未匹配到时使用）
 #   dock              = [...]   # 可选停靠点
 #
-#   [tasks.B.destinations.xxx]         # 按物体类型配置放置目标
-#   xy           = [20, 30]            # 放置 XY
-#   include_dock = false               # 是否在该物体后追加停靠点
+#   [tasks.B.destinations.1]          # 目的地 1 (3D 返回 destID=1 时匹配)
+#   xy           = [20, 30]           # 放置 XY
+#   include_dock = false              # 是否追加停靠点
+#
+#   [tasks.B.destinations.2]          # 目的地 2
+#   xy           = [50, 30]
+#   include_dock = true
 
 def dry_run_task_b(
     script: dict[str, Any],
@@ -257,70 +260,66 @@ def dry_run_task_b(
     mode: str,
     vs_message: str | None,
 ) -> dict[str, Any]:
-    # ---- 1. 解析 VS 消息 ----
-    raw = vs_message or str(cfg.get("sample_vs_message", "B;1;2;3;4;"))
+    """解析 VS 消息 B;X;Y; + 3D 返回值 B;Z;destID; → 生成单条 GP 指令。
+
+    实际运行时 3D 的 Z/destID 由 _handle_task_b 注入 cfg["_3d_z"] / cfg["_3d_dest_id"]。
+    dry-run 时使用 sample_3d_z 的前两个值。
+    """
+    # ---- 1. 解析 VS 消息: B;X;Y; ----
+    raw = vs_message or str(cfg.get("sample_vs_message", "B;2;3;"))
     msg = parse_message(raw)
     if msg.kind != "B":
         raise ProtocolError(f"expected task B, got {msg.kind}")
-    # 去掉第一个字段 B，剩余的是坐标值
-    values = msg.fields[1:]
-    # 按 vision_fields 定义提取每个物体的 x, y
-    fields = list(cfg.get("vision_fields", []))
-    required = sum(len(item.get("fields", ["x", "y"])) for item in fields)
-    if len(values) < required:
-        raise ProtocolError(f"expected at least {required} value fields, got {len(values)}")
+    if len(msg.fields) < 3:
+        raise ProtocolError(f"expected B;X;Y; at least 3 fields, got {len(msg.fields)}")
+    x = msg.fields[1]  # 物体 X 坐标
+    y = msg.fields[2]  # 物体 Y 坐标
 
-    objects = []
-    offset = 0
-    for item in fields:
-        names = list(item.get("fields", ["x", "y"]))
-        obj = {"task": "B", "type": item.get("type"), "label": item.get("label", item.get("type"))}
-        for name in names:
-            obj[name] = values[offset]
-            offset += 1
-        objects.append(obj)
-
-    # ---- 2. 3D 测高相关 ----
+    # ---- 2. 3D 相关 ----
     three_d = script.get("three_d", {})
-    # 发送给 3D 的请求: B;start;  (或 TOML 中自定义的 task_b_request)
-    three_d_tx = str(three_d.get("task_b_request", cfg.get("three_d_request", format_message(["B", "start"]))))
-    # dry-run 时使用 sample_3d_z 作为模拟的 3D 返回值
-    z_values = list(cfg.get("sample_3d_z", [7, 8]))
-    three_d_rx = format_message(["B", *z_values])
+    three_d_tx = str(three_d.get("task_b_request", "B;start;"))
 
-    # ---- 3. 生成 GP 指令 ----
-    destinations = cfg.get("destinations", {})  # 按类型的放置目标配置
-    dock = cfg.get("dock")                       # 停靠点
-    commands = []
-    base_table_z = float(cfg.get("base_table_z", 100))  # 桌面基础 Z
+    # 真实的 Z 和 destID（由 _handle_task_b 注入 cfg）
+    if "_3d_z" in cfg:
+        z_value = float(cfg["_3d_z"])
+        dest_id = str(cfg["_3d_dest_id"])
+    else:
+        # dry-run：用 sample_3d_z = [Z, destID]
+        sample = list(cfg.get("sample_3d_z", [15, 1]))
+        z_value = float(sample[0]) if len(sample) > 0 else 15.0
+        dest_id = str(sample[1]) if len(sample) > 1 else "1"
+    three_d_rx = format_message(["B", z_value, int(dest_id)])
 
-    for index, obj in enumerate(objects):
-        # 3D 返回的 Z 修正值 (第 index 个物体的高度)
-        z_delta = float(z_values[index]) if index < len(z_values) else 0.0
-        # 实际抓取 Z = 桌面基础Z + 3D 返回的物体高度
-        z = base_table_z + z_delta
-        # 该物体类型的放置目标
-        per_obj = dict(destinations.get(str(obj["type"]), {}))
-        dest = list(per_obj.get("xy", cfg.get("default_dest_xy", [0, 0])))
-        # GP 指令: GP;抓X;抓Y;抓Z;抓Rx;抓Ry;抓Rz;放X;放Y;放Z;放Rx;放Ry;放Rz;
-        gp = [
-            "GP",
-            obj["x"], obj["y"], z, *cfg.get("pick_rpy", [180, 0, 0]),
-            *dest, *cfg.get("place_rpy", [180, 0, 0]),
-        ]
-        # 如果该物体需要追加停靠点 (include_dock=true 或最后一个物体)
-        if dock and bool(per_obj.get("include_dock", index == len(objects) - 1)):
-            gp.extend(dock)
-        commands.append(format_message(gp))
+    # ---- 3. 查找目的地 ----
+    destinations = cfg.get("destinations", {})
+    dest_cfg = dict(destinations.get(dest_id, {}))
+    dest = list(dest_cfg.get("xy", cfg.get("default_dest_xy", [0, 0])))
+    dock = cfg.get("dock")
 
-    # ---- 4. 返回结果 ----
+    # ---- 4. 生成单条 GP 指令 ----
+    base_table_z = float(cfg.get("base_table_z", 105))
+    actual_z = base_table_z + z_value  # 实际抓取 Z
+
+    gp = [
+        "GP",
+        x, y, actual_z, *cfg.get("pick_rpy", [180, 0, 0]),
+        *dest, *cfg.get("place_rpy", [180, 0, 0]),
+    ]
+    if dock and bool(dest_cfg.get("include_dock", True)):
+        gp.extend(dock)
+    commands = [format_message(gp)]
+
+    # ---- 5. 返回 ----
     return {
         "ok": True,
         "task": "B",
         "vs_rx": raw,
-        "objects": objects,
-        "three_d_host": three_d.get("host", cfg.get("three_d_host", "192.168.173.2")),
-        "three_d_port": three_d.get("port", cfg.get("three_d_port", 9303)),
+        "x": x, "y": y,
+        "z_value": z_value,
+        "dest_id": dest_id,
+        "actual_z": actual_z,
+        "three_d_host": three_d.get("host", "192.168.173.2"),
+        "three_d_port": three_d.get("port", 9303),
         "three_d_tx": three_d_tx,
         "three_d_rx": three_d_rx,
         "bot_tx": commands,

@@ -202,15 +202,16 @@ class ScriptService:
             if not self._send_bot_commands([move_cmd]):
                 self._mark_task(False, "前置移动失败")
                 return self._reply(["NG", "B", "pre_move_failed"])
-        # ---- 请求 3D 高度 ----
-        result = dry_run_task_b(script, cfg, mode="all", vs_message=line)
-        self._record("Task B", "请求 3D 高度")
+        # ---- 请求 3D 高度 (B;start;) → 3D 返回 B;Z;destID; ----
+        self._record("Task B", f"VS: {line}")
         z_rx = self._request_3d(cfg)
-        z_values = _parse_task_b_z(z_rx)
+        z_value, dest_id = _parse_task_b_z_dest(z_rx)
+        self._record("Task B", f"3D 返回 Z={z_value} destID={dest_id}")
+        # 将真实 Z/destID 注入 cfg，供 dry_run_task_b 生成 GP
         cfg = dict(cfg)
-        cfg["sample_3d_z"] = z_values
+        cfg["_3d_z"] = z_value
+        cfg["_3d_dest_id"] = dest_id
         result = dry_run_task_b(script, cfg, mode="all", vs_message=line)
-        self._record("Task B", f"3D 返回 Z={z_values}")
         ok = self._send_bot_commands(result["bot_tx"])
         self._mark_task(ok, "" if ok else "bot command failed")
         return self._reply(["OK" if ok else "NG", "B", len(result["bot_tx"])])
@@ -513,13 +514,13 @@ def _normalize_task_a_line(line: str) -> str:
     return format_message(["A", "all", *msg.fields[1:]])
 
 
-def _parse_task_b_z(line: str) -> list[float]:
+def _parse_task_b_z_dest(line: str) -> tuple[float, str]:
+    """解析 3D 返回值: B;Z;destID; → (z_value, dest_id)"""
     msg = parse_message(line)
     if msg.kind != "B":
-        raise ProtocolError(f"expected 3D response B;z..., got {msg.kind}")
-    values = []
-    for item in msg.fields[1:]:
-        values.append(float(item))
-    if not values:
-        raise ProtocolError("3D response has no z values")
-    return values
+        raise ProtocolError(f"expected 3D response B;Z;destID;, got {msg.kind}")
+    if len(msg.fields) < 3:
+        raise ProtocolError(f"expected B;Z;destID; at least 3 fields, got {len(msg.fields)}")
+    z_value = float(msg.fields[1])
+    dest_id = str(msg.fields[2])
+    return z_value, dest_id

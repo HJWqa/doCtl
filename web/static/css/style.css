@@ -113,6 +113,12 @@ button {
     color: var(--green);
 }
 
+.badge-offline {
+    background: var(--red-bg);
+    border-color: rgba(248, 81, 73, 0.35);
+    color: var(--red);
+}
+
 /* ---- 主布局 ---- */
 .main-grid {
     display: grid;
