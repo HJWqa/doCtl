@@ -1,9 +1,19 @@
 // ============================================================
-// Dobot 总控面板 - 离线友好 · 零外部依赖
+// Dobot 总控面板 - 断网/离线友好 · 零外部依赖
+// 所有资源来自本机 Flask 静态目录，不访问公网 CDN。
 // ============================================================
 
-// socket.io 客户端由本地静态文件提供 (无需 CDN)
-const socket = io({ reconnection: true, reconnectionDelay: 1000, reconnectionAttempts: Infinity });
+// 同源 Socket.IO：只连本机主控服务，不解析外网主机
+const socket = io({
+    path: "/socket.io",
+    transports: ["websocket", "polling"],
+    upgrade: true,
+    reconnection: true,
+    reconnectionDelay: 1000,
+    reconnectionAttempts: Infinity,
+    // 断网/服务重启时持续重连；不依赖任何外部地址
+    rememberUpgrade: true,
+});
 
 const MAX_TRAFFIC = 240;
 const trafficLines = [];

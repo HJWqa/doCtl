@@ -3,6 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- 断网生产环境：禁止加载任何外网资源，仅同源静态与本机 Socket.IO -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'none'">
+    <meta name="referrer" content="no-referrer">
     <title>RK 比赛主控调试台</title>
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="/static/js/socket.io.min.js"></script>

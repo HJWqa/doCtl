@@ -31,6 +31,8 @@ python ctl.py arm home
 python ctl.py serve --host 0.0.0.0 --port 8080
 ```
 
+Web 界面**不依赖公网**：CSS / JS / Socket.IO 客户端全部打包在 `web/static/`，浏览器只需访问本机（或局域网）主控地址即可。断网生产环境可直接使用，无需 CDN 或外网字体。
+
 ## 网络默认值
 
 | 服务 | 默认地址 |

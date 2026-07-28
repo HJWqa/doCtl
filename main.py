@@ -23,6 +23,25 @@ def create_app(coordinator) -> Flask:
     app = Flask(__name__, template_folder="web/templates", static_folder="web/static")
     app.config["SECRET_KEY"] = "dobot-ctl-2026"
 
+    # 断网生产环境：页面与静态资源仅同源，禁止浏览器偷偷请求外网
+    @app.after_request
+    def _offline_headers(resp):
+        from flask import request
+
+        # 与 index.html meta CSP 一致；服务端头优先
+        resp.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; "
+            "img-src 'self' data:; style-src 'self'; script-src 'self'; "
+            "connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'none'",
+        )
+        resp.headers.setdefault("Referrer-Policy", "no-referrer")
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        # 静态资源可本地缓存（仍不依赖公网）
+        if request.path.startswith("/static/"):
+            resp.headers.setdefault("Cache-Control", "public, max-age=3600")
+        return resp
+
     # 注册蓝图
     from web.routes import api, init_routes
     app.register_blueprint(api)
