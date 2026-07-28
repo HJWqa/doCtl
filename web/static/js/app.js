@@ -20,6 +20,14 @@ const trafficLines = [];
 let activeTrafficDevice = "all";
 let activeDebugTab = "traffic";
 let lastStatus = null;       // 缓存最近一次状态，离线时不丢 UI
+let lastTargets = null;      // 最近一次从剧本解析出的设备地址
+let scriptParseTimer = null; // 编辑器输入防抖
+
+const SCRIPT_DEFAULTS = {
+    vision: { host: "127.0.0.1", port: "7930" },
+    three_d: { host: "192.168.173.2", port: "9303" },
+    bot: { host: "192.168.200.1", port: "9552" },
+};
 
 const trafficDeviceNames = {
     all: "全部",
@@ -50,12 +58,22 @@ function bindUiEvents() {
     const saveBtn = document.getElementById("btn-script-save");
     if (saveBtn) saveBtn.addEventListener("click", saveScript);
 
+    const editor = document.getElementById("script-editor");
+    if (editor) {
+        // 输入时自动解析剧本，刷新左侧设备卡片地址
+        editor.addEventListener("input", () => scheduleScriptParse());
+        editor.addEventListener("change", () => scheduleScriptParse(true));
+    }
+
     document.querySelectorAll(".tab-btn[data-tab]").forEach(btn => {
         btn.addEventListener("click", () => setDebugTab(btn.dataset.tab));
     });
 
     const clearBtn = document.getElementById("btn-traffic-clear");
     if (clearBtn) clearBtn.addEventListener("click", clearTraffic);
+
+    const clearEventsBtn = document.getElementById("btn-events-clear");
+    if (clearEventsBtn) clearEventsBtn.addEventListener("click", clearScriptEvents);
 
     const txFilter = document.getElementById("traffic-tx");
     if (txFilter) txFilter.addEventListener("change", filterTraffic);
@@ -160,10 +178,17 @@ function updateStatus(status) {
     document.getElementById("watch-rx").textContent = script.last_rx || "--";
     document.getElementById("watch-tx").textContent = script.last_tx || "--";
 
-    const vision = script.vision || {};
-    const visionText = (vision.host || "127.0.0.1") + ":" + (vision.port || 7930);
-    document.getElementById("script-listen").textContent =
-        (vision.connected ? "已连接" : (running ? "连接中" : "目标")) + " VS " + visionText;
+    // 优先用编辑器当前剧本；编辑器为空时回退到后端 status 里的地址
+    const editor = document.getElementById("script-editor");
+    const editorText = editor ? editor.value : "";
+    if (editorText.trim()) {
+        updateTargetsFromText(editorText, {
+            running: running,
+            visionConnected: !!(script.vision && script.vision.connected),
+        });
+    } else {
+        updateTargetsFromStatus(script);
+    }
     renderEvents(script.events || []);
 }
 
@@ -212,6 +237,14 @@ function renderEvents(events) {
     container.scrollTop = container.scrollHeight;
 }
 
+/** 清空 Script 观察：同步清后端事件缓存，避免 status 推送把列表刷回来。 */
+function clearScriptEvents() {
+    renderEvents([]);
+    document.getElementById("watch-rx").textContent = "--";
+    document.getElementById("watch-tx").textContent = "--";
+    sendControl("clear_events");
+}
+
 // ---------- 控制指令（双通道：Socket + HTTP）----------
 function sendControl(cmd) {
     // 优先走 WebSocket（低延迟）
@@ -233,7 +266,7 @@ function loadScript() {
         .then(data => {
             document.getElementById("script-path").textContent = data.path || "--";
             document.getElementById("script-editor").value = data.text || "";
-            updateTargetsFromText(data.text || "");
+            updateTargetsFromText(data.text || "", connectionHintsFromStatus(lastStatus));
             setScriptMsg("已读取", "ok");
         })
         .catch(() => setScriptMsg("读取失败 (服务未连接)", "error"));
@@ -252,7 +285,7 @@ function saveScript() {
                 setScriptMsg(data.message || "保存失败", "error");
                 return;
             }
-            updateTargetsFromText(text);
+            updateTargetsFromText(text, connectionHintsFromStatus(lastStatus));
             setScriptMsg("已保存", "ok");
         })
         .catch(() => setScriptMsg("保存失败 (服务未连接)", "error"));
@@ -264,25 +297,138 @@ function setScriptMsg(text, cls) {
     el.className = cls || "";
 }
 
-function updateTargetsFromText(text) {
-    const threeHost = matchTomlValue(text, "three_d", "host") || "192.168.173.2";
-    const threePort = matchTomlValue(text, "three_d", "port") || "9303";
-    const visionHost = matchTomlValue(text, "vision", "host") || "127.0.0.1";
-    const visionPort = matchTomlValue(text, "vision", "port") || "7930";
-    const botHost = matchTomlValue(text, "bot", "host") || "192.168.200.1";
-    const botPort = matchTomlValue(text, "bot", "port") || "9552";
-    document.getElementById("script-listen").textContent =
-        "目标 VS " + visionHost + ":" + visionPort;
-    document.getElementById("three-d-target").textContent = threeHost + ":" + threePort;
-    document.getElementById("bot-target").textContent = botHost + ":" + botPort;
+function scheduleScriptParse(immediate) {
+    if (scriptParseTimer) {
+        clearTimeout(scriptParseTimer);
+        scriptParseTimer = null;
+    }
+    const run = () => {
+        scriptParseTimer = null;
+        const editor = document.getElementById("script-editor");
+        updateTargetsFromText(editor ? editor.value : "", connectionHintsFromStatus(lastStatus));
+    };
+    if (immediate) {
+        run();
+        return;
+    }
+    scriptParseTimer = setTimeout(run, 180);
+}
+
+function connectionHintsFromStatus(status) {
+    const script = (status && status.script) || {};
+    return {
+        running: !!script.running,
+        visionConnected: !!(script.vision && script.vision.connected),
+    };
+}
+
+/**
+ * 从 TOML 剧本文本解析 [vision] / [three_d] / [bot] 并刷新设备卡片。
+ * hints: { running, visionConnected } 用于 Script 主控副标题连接态文案。
+ */
+function updateTargetsFromText(text, hints) {
+    const targets = parseScriptTargets(text);
+    lastTargets = targets;
+    applyDeviceTargets(targets, hints || connectionHintsFromStatus(lastStatus));
+}
+
+/** 编辑器为空时，用后端 status 中的地址填充卡片。 */
+function updateTargetsFromStatus(script) {
+    const vision = script.vision || {};
+    const threeD = script.three_d || {};
+    const bot = script.bot || {};
+    const targets = {
+        vision: {
+            host: String(vision.host || SCRIPT_DEFAULTS.vision.host),
+            port: String(vision.port || SCRIPT_DEFAULTS.vision.port),
+        },
+        three_d: {
+            host: String(threeD.host || SCRIPT_DEFAULTS.three_d.host),
+            port: String(threeD.port || SCRIPT_DEFAULTS.three_d.port),
+        },
+        bot: {
+            host: String(bot.host || SCRIPT_DEFAULTS.bot.host),
+            port: String(bot.port || SCRIPT_DEFAULTS.bot.port),
+            dryRun: false,
+        },
+    };
+    lastTargets = targets;
+    applyDeviceTargets(targets, {
+        running: !!script.running,
+        visionConnected: !!(vision.connected),
+    });
+}
+
+function applyDeviceTargets(targets, hints) {
+    const vision = targets.vision;
+    const threeD = targets.three_d;
+    const bot = targets.bot;
+    const visionAddr = vision.host + ":" + vision.port;
+    const threeAddr = threeD.host + ":" + threeD.port;
+    let botAddr = bot.host + ":" + bot.port;
+    if (bot.dryRun) botAddr += " (dry-run)";
+
+    // Script 主控只显示自身运行态，VS 地址只在 Vision 卡上展示，避免重复
+    const running = !!(hints && hints.running);
+    const paused = !!(lastStatus && lastStatus.script && lastStatus.script.paused);
+    let scriptLabel = "待机 · 未启动";
+    if (running && paused) scriptLabel = "已启动 · 暂停中";
+    else if (running) scriptLabel = "已启动 · 运行中";
+
+    setText("script-listen", scriptLabel);
+    setText("vision-target", visionAddr);
+    setText("three-d-target", threeAddr);
+    setText("bot-target", botAddr);
+}
+
+function setText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+}
+
+/**
+ * 轻量 TOML 段解析：只取顶层 [vision] / [three_d] / [bot] 的 host/port/dry_run。
+ * 不依赖外部库，适合断网环境。
+ */
+function parseScriptTargets(text) {
+    const raw = String(text || "");
+    const visionHost = matchTomlValue(raw, "vision", "host") || SCRIPT_DEFAULTS.vision.host;
+    const visionPort = matchTomlValue(raw, "vision", "port") || SCRIPT_DEFAULTS.vision.port;
+    const threeHost = matchTomlValue(raw, "three_d", "host") || SCRIPT_DEFAULTS.three_d.host;
+    const threePort = matchTomlValue(raw, "three_d", "port") || SCRIPT_DEFAULTS.three_d.port;
+    const botHost = matchTomlValue(raw, "bot", "host") || SCRIPT_DEFAULTS.bot.host;
+    const botPort = matchTomlValue(raw, "bot", "port") || SCRIPT_DEFAULTS.bot.port;
+    const dryRaw = (matchTomlValue(raw, "bot", "dry_run") || "").toLowerCase();
+    const dryRun = dryRaw === "true" || dryRaw === "1";
+
+    return {
+        vision: { host: visionHost, port: visionPort },
+        three_d: { host: threeHost, port: threePort },
+        bot: { host: botHost, port: botPort, dryRun: dryRun },
+    };
 }
 
 function matchTomlValue(text, section, key) {
-    const re = new RegExp("\\[" + section + "\\]([\\s\\S]*?)(?:\\n\\[|$)");
-    const block = text.match(re);
+    // 匹配 [section] 到下一个顶层 [ 或文件结束；忽略 [[array]] 表
+    const secRe = new RegExp(
+        "(?:^|\\n)\\[" + escapeRegExp(section) + "\\]\\s*(?:\\n|$)([\\s\\S]*?)(?=(?:\\n\\[[^\\[]|\\n\\[\\[|$))"
+    );
+    const block = text.match(secRe);
     if (!block) return "";
-    const line = block[1].match(new RegExp("^\\s*" + key + "\\s*=\\s*\"?([^\"\\n#]+)\"?", "m"));
-    return line ? line[1].trim() : "";
+
+    // key = "value" | 'value' | bare
+    const lineRe = new RegExp(
+        "(?:^|\\n)\\s*" + escapeRegExp(key) + "\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\n#]+))",
+        "m"
+    );
+    const line = block[1].match(lineRe);
+    if (!line) return "";
+    const value = (line[1] != null ? line[1] : (line[2] != null ? line[2] : line[3] || ""));
+    return String(value).trim().replace(/,\s*$/, "");
+}
+
+function escapeRegExp(value) {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // ---------- Debug 标签页 ----------

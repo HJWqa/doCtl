@@ -14,7 +14,7 @@
 [vision]
 # Vision Studio 的 TCP 服务地址。
 # doCtl 启动 Script 后会主动连接这里，而不是等待 VS 来连主控。
-host = "172.29.64.1"
+host = "127.0.0.1"
 port = 7930
 
 # 连接 VS 的超时，以及断线后多久重连一次。

@@ -86,6 +86,7 @@ def handle_control(data):
         "stop": lambda: _coordinator.script.stop(),
         "pause": lambda: _coordinator.script.pause(),
         "resume": lambda: _coordinator.script.resume(),
+        "clear_events": lambda: _coordinator.script.clear_events(),
         "legacy_start": lambda: _coordinator.start(),
         "legacy_stop": lambda: _coordinator.stop(),
     }

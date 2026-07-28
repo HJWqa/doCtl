@@ -1037,8 +1037,17 @@ button {
     font-size: 12px;
 }
 
+.watch-actions {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
 .watch-last {
-    min-width: 220px;
+    min-width: 180px;
+    max-width: min(360px, 42vw);
     display: grid;
     gap: 4px;
     color: var(--text-dim);
@@ -1049,6 +1058,11 @@ button {
 .watch-last span {
     color: var(--text);
     overflow-wrap: anywhere;
+}
+
+.watch-actions .btn-clear {
+    flex: 0 0 auto;
+    margin-top: 1px;
 }
 
 .event-list {

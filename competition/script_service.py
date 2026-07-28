@@ -102,6 +102,16 @@ class ScriptService:
         logger.info("[Script] 已恢复")
         self._notify_state()
 
+    def clear_events(self) -> None:
+        """清空 Script 观察事件列表（以及最近 RX/TX 展示）。"""
+        with self._stats_lock:
+            self._events.clear()
+            self.last_rx = ""
+            self.last_tx = ""
+            if not self._running:
+                self.current_step = "待机"
+        self._notify_state()
+
     def on_state_change(self, callback: StateCallback) -> None:
         self._state_callbacks.append(callback)
 

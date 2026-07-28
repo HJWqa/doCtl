@@ -39,7 +39,7 @@
                     <div class="card-icon">V</div>
                     <div class="card-body">
                         <div class="card-title">Vision Studio</div>
-                        <div class="card-sub">Script 主动连接 VS</div>
+                        <div class="card-sub" id="vision-target">--</div>
                     </div>
                     <div class="card-status" id="status-vision">○</div>
                 </div>
@@ -75,8 +75,8 @@
                 </div>
                 <textarea id="script-editor" spellcheck="false"></textarea>
                 <div class="set-actions">
-                    <button class="btn btn-home" id="btn-script-reload" type="button">重新读取</button>
-                    <button class="btn btn-start" id="btn-script-save" type="button">保存剧本</button>
+                    <button class="btn btn-home" id="btn-script-reload" type="button">读取</button>
+                    <button class="btn btn-start" id="btn-script-save" type="button">保存</button>
                     <span id="script-msg"></span>
                 </div>
             </div>
@@ -104,9 +104,12 @@
                         <div class="watch-title">Script 观察</div>
                         <div class="watch-sub" id="watch-current">当前步骤：待机</div>
                     </div>
-                    <div class="watch-last">
-                        <div>RX <span id="watch-rx">--</span></div>
-                        <div>TX <span id="watch-tx">--</span></div>
+                    <div class="watch-actions">
+                        <div class="watch-last">
+                            <div>RX <span id="watch-rx">--</span></div>
+                            <div>TX <span id="watch-tx">--</span></div>
+                        </div>
+                        <button class="btn-clear" id="btn-events-clear" type="button" title="清空观察事件">清空</button>
                     </div>
                 </div>
                 <div class="event-list" id="event-list">
