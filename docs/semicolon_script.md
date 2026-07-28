@@ -66,6 +66,17 @@ Sucl;0;
 
 `place_z` 会按物块高度逐次增加，也可以在每个物体配置里单独指定高度。
 
+Bot 回包兼容（任选其一完成语义）：
+
+```text
+OK
+OK;done;
+MovJ;received;     # 中间 ACK，继续等
+MovJ;reached;      # 到位 = 完成
+GP;received;
+GP;reached;
+```
+
 机械臂 GP 模式：
 
 ```text

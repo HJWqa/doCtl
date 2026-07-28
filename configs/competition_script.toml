@@ -26,7 +26,9 @@ reconnect_s = 1
 host = "192.168.200.1"
 port = 20001
 
-# 单条 Bot 命令等待 OK 的超时和重试次数。
+# 单条 Bot 命令等待完成回包的超时和重试次数。
+# 完成回包兼容: OK / OK;... / CMD;reached;
+# 中间回包: CMD;received; （已接收，继续等到位，不重发）
 # GP 模式一条指令包含全部动作，执行时间很长，timeout 需要足够大。
 # 建议 retry = 0，避免 GP 指令超时重发导致反复执行。
 timeout_s = 60

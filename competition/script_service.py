@@ -262,7 +262,14 @@ class ScriptService:
     def _send_bot_command_reconnect(
         self, host: str, port: int, command: str, timeout_s: float, retry: int,
     ) -> bool:
-        """发送单条指令，支持重试。每次尝试新建 TCP 连接，避免复用超时后的坏 socket。"""
+        """发送单条指令，支持重试。每次尝试新建 TCP 连接，避免复用超时后的坏 socket。
+
+        兼容 Bot 回包：
+          - OK / OK;...              立即成功（旧协议）
+          - CMD;received;            中间 ACK，继续等到位
+          - CMD;reached;             到位完成（与 OK 等价）
+          - 其它非空行               视为失败
+        """
         retry_delay_s = 0.5
         for attempt in range(1, retry + 2):
             self._emit("arm", "tx", command)
@@ -274,6 +281,7 @@ class ScriptService:
                     stream.write((command.rstrip() + "\n").encode("utf-8"))
                     stream.flush()
                     started = time.monotonic()
+                    saw_received = False
                     while time.monotonic() - started < timeout_s:
                         try:
                             raw = stream.readline()
@@ -285,16 +293,25 @@ class ScriptService:
                             self._emit("arm", "err", "Bot 连接已关闭 (EOF)")
                             break
                         response = raw.decode("utf-8", errors="replace").strip()
-                        if response:
-                            self._emit("arm", "rx", response)
-                            if response.upper().startswith("OK"):
-                                self._record("Bot OK", command)
-                                return True
-                            self._emit("arm", "err", f"Bot 返回非 OK: {response}")
-                            break
+                        if not response:
+                            continue
+                        self._emit("arm", "rx", response)
+                        kind = _classify_bot_ack(response)
+                        if kind == "done":
+                            self._record("Bot OK", command)
+                            return True
+                        if kind == "received":
+                            if not saw_received:
+                                self._record("Bot 已接收", command)
+                            saw_received = True
+                            continue
+                        self._emit("arm", "err", f"Bot 返回非 OK: {response}")
+                        break
                     else:
+                        hint = " (仅收到 received, 未等到 reached/OK)" if saw_received else ""
                         self._emit("arm", "err",
-                                   f"无响应 (attempt {attempt}/{retry + 1}, waited {timeout_s}s): {command[:60]}")
+                                   f"无响应{hint} (attempt {attempt}/{retry + 1}, "
+                                   f"waited {timeout_s}s): {command[:60]}")
             except OSError as e:
                 self._emit("arm", "err", f"连接失败 (attempt {attempt}): {e}")
             if attempt <= retry:
@@ -480,6 +497,32 @@ class ScriptService:
             return err == 0
         except Exception:
             return False
+
+
+def _classify_bot_ack(response: str) -> str:
+    """分类 Bot 回包。
+
+    返回:
+      "done"      - 指令完成 (OK 或 *;reached;)
+      "received"  - 已接收、执行中 (*;received;)
+      "error"     - 其它，视为失败
+    """
+    text = response.strip()
+    if not text:
+        return "error"
+    upper = text.upper()
+    if upper.startswith("OK"):
+        return "done"
+
+    # 分号协议: MovJ;received; / GP;reached; / Suck;REACHED
+    parts = [p.strip() for p in text.split(";") if p.strip()]
+    if len(parts) >= 2:
+        status = parts[1].upper()
+        if status == "REACHED":
+            return "done"
+        if status == "RECEIVED":
+            return "received"
+    return "error"
 
 
 def _resolve_path(path: str | Path) -> Path:
