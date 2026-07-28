@@ -23,8 +23,8 @@ reconnect_s = 1
 
 [bot]
 # Dobot Bot 的 TCP 服务地址。
-host = "192.168.200.1"
-port = 20001
+host = "127.0.0.1"
+port = 7920
 
 # 单条 Bot 命令等待完成回包的超时和重试次数。
 # 完成回包兼容: OK / OK;... / CMD;reached;

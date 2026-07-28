@@ -3,11 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- 断网生产环境：禁止加载任何外网资源，仅同源静态与本机 Socket.IO -->
+    <!-- 断网生产环境：禁止加载任何外网资源，仅同源静态与本机 Socket.IO。
+         frame-ancestors 只能由 HTTP 响应头生效，meta 里写会被浏览器忽略，故不放在此处。 -->
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'none'">
+          content="default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' ws: wss:; font-src 'self'">
     <meta name="referrer" content="no-referrer">
     <title>RK 比赛主控调试台</title>
+    <link rel="icon" href="data:,">
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="/static/js/socket.io.min.js"></script>
 </head>
@@ -60,10 +62,10 @@
             </div>
 
             <div class="btn-group">
-                <button class="btn btn-start" id="btn-start" onclick="sendControl('start')">启动连接</button>
-                <button class="btn btn-stop" id="btn-stop" onclick="sendControl('stop')" disabled>停止</button>
-                <button class="btn btn-pause" id="btn-pause" onclick="sendControl('pause')" disabled>暂停</button>
-                <button class="btn btn-resume" id="btn-resume" onclick="sendControl('resume')" disabled>恢复</button>
+                <button class="btn btn-start" id="btn-start" type="button" data-cmd="start">启动连接</button>
+                <button class="btn btn-stop" id="btn-stop" type="button" data-cmd="stop" disabled>停止</button>
+                <button class="btn btn-pause" id="btn-pause" type="button" data-cmd="pause" disabled>暂停</button>
+                <button class="btn btn-resume" id="btn-resume" type="button" data-cmd="resume" disabled>恢复</button>
             </div>
 
             <div class="settings-panel script-editor-panel">
@@ -73,8 +75,8 @@
                 </div>
                 <textarea id="script-editor" spellcheck="false"></textarea>
                 <div class="set-actions">
-                    <button class="btn btn-home" onclick="loadScript()">重新读取</button>
-                    <button class="btn btn-start" onclick="saveScript()">保存剧本</button>
+                    <button class="btn btn-home" id="btn-script-reload" type="button">重新读取</button>
+                    <button class="btn btn-start" id="btn-script-save" type="button">保存剧本</button>
                     <span id="script-msg"></span>
                 </div>
             </div>
@@ -114,31 +116,31 @@
 
             <section class="debug-tabs">
                 <div class="tab-bar">
-                    <button class="tab-btn active" data-tab="traffic" onclick="setDebugTab('traffic')">通信</button>
-                    <button class="tab-btn" data-tab="logs" onclick="setDebugTab('logs')">日志</button>
+                    <button class="tab-btn active" type="button" data-tab="traffic">通信</button>
+                    <button class="tab-btn" type="button" data-tab="logs">日志</button>
                     <span class="traffic-actions">
-                        <button class="btn-clear" onclick="clearTraffic()">清空</button>
-                        <label class="traffic-filter"><input type="checkbox" id="traffic-tx" checked onchange="filterTraffic()">TX</label>
-                        <label class="traffic-filter"><input type="checkbox" id="traffic-rx" checked onchange="filterTraffic()">RX</label>
+                        <button class="btn-clear" id="btn-traffic-clear" type="button">清空</button>
+                        <label class="traffic-filter"><input type="checkbox" id="traffic-tx" checked>TX</label>
+                        <label class="traffic-filter"><input type="checkbox" id="traffic-rx" checked>RX</label>
                         <span class="traffic-count" id="traffic-count">0</span>
                     </span>
                 </div>
 
                 <div class="tab-panel active" id="tab-traffic">
                     <div class="traffic-tabs" role="tablist" aria-label="通信设备">
-                        <button class="traffic-tab active" type="button" data-device="all" onclick="setTrafficDevice('all')" role="tab" aria-selected="true">
+                        <button class="traffic-tab active" type="button" data-device="all" role="tab" aria-selected="true">
                             全部 <span id="traffic-tab-count-all">0</span>
                         </button>
-                        <button class="traffic-tab" type="button" data-device="script" onclick="setTrafficDevice('script')" role="tab" aria-selected="false">
+                        <button class="traffic-tab" type="button" data-device="script" role="tab" aria-selected="false">
                             Script <span id="traffic-tab-count-script">0</span>
                         </button>
-                        <button class="traffic-tab" type="button" data-device="vision" onclick="setTrafficDevice('vision')" role="tab" aria-selected="false">
+                        <button class="traffic-tab" type="button" data-device="vision" role="tab" aria-selected="false">
                             VS <span id="traffic-tab-count-vision">0</span>
                         </button>
-                        <button class="traffic-tab" type="button" data-device="camera3d" onclick="setTrafficDevice('camera3d')" role="tab" aria-selected="false">
+                        <button class="traffic-tab" type="button" data-device="camera3d" role="tab" aria-selected="false">
                             3D <span id="traffic-tab-count-camera3d">0</span>
                         </button>
-                        <button class="traffic-tab" type="button" data-device="arm" onclick="setTrafficDevice('arm')" role="tab" aria-selected="false">
+                        <button class="traffic-tab" type="button" data-device="arm" role="tab" aria-selected="false">
                             Bot <span id="traffic-tab-count-arm">0</span>
                         </button>
                     </div>

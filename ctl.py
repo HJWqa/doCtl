@@ -392,7 +392,14 @@ def cmd_serve(args: argparse.Namespace) -> int:
     app = web_main.create_app(coordinator)
     from web.socketio_handler import socketio
 
-    socketio.run(app, host=args.host, port=args.port, debug=False, allow_unsafe_werkzeug=True)
+    socketio.run(
+        app,
+        host=args.host,
+        port=args.port,
+        debug=False,
+        allow_unsafe_werkzeug=True,
+        use_reloader=False,
+    )
     return 0
 
 

@@ -32,10 +32,40 @@ const trafficDeviceNames = {
 
 // ---------- 初始化 ----------
 document.addEventListener("DOMContentLoaded", () => {
+    bindUiEvents();
     loadScript();
     updateClock();
     setInterval(updateClock, 1000);
 });
+
+// 所有交互在 app.js 绑定，避免 CSP script-src 'self' 拦截 HTML 内联 onclick/onchange
+function bindUiEvents() {
+    document.querySelectorAll("[data-cmd]").forEach(btn => {
+        btn.addEventListener("click", () => sendControl(btn.dataset.cmd));
+    });
+
+    const reloadBtn = document.getElementById("btn-script-reload");
+    if (reloadBtn) reloadBtn.addEventListener("click", loadScript);
+
+    const saveBtn = document.getElementById("btn-script-save");
+    if (saveBtn) saveBtn.addEventListener("click", saveScript);
+
+    document.querySelectorAll(".tab-btn[data-tab]").forEach(btn => {
+        btn.addEventListener("click", () => setDebugTab(btn.dataset.tab));
+    });
+
+    const clearBtn = document.getElementById("btn-traffic-clear");
+    if (clearBtn) clearBtn.addEventListener("click", clearTraffic);
+
+    const txFilter = document.getElementById("traffic-tx");
+    if (txFilter) txFilter.addEventListener("change", filterTraffic);
+    const rxFilter = document.getElementById("traffic-rx");
+    if (rxFilter) rxFilter.addEventListener("change", filterTraffic);
+
+    document.querySelectorAll(".traffic-tab[data-device]").forEach(btn => {
+        btn.addEventListener("click", () => setTrafficDevice(btn.dataset.device));
+    });
+}
 
 // ---------- Socket.IO 事件 ----------
 socket.on("connect", () => {

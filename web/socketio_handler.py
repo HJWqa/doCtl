@@ -5,6 +5,17 @@ Flask-SocketIO 事件处理
 
 from flask_socketio import SocketIO
 
+from web.ws_werkzeug_patch import apply_werkzeug_websocket_patch
+from utils.logger import logger
+
+# 先升到最新 engineio/socketio/werkzeug，再按需打补丁。
+# 上游未修时补 start_response，避免 Werkzeug 假 500；上游修好后自动 no-op。
+# 必须在创建 SocketIO 之前执行。
+if apply_werkzeug_websocket_patch():
+    logger.debug("[WS] applied Werkzeug websocket start_response patch")
+else:
+    logger.debug("[WS] Werkzeug websocket patch skipped (upstream ok or unavailable)")
+
 socketio = SocketIO(async_mode="threading", cors_allowed_origins="*")
 
 # 引用由 main.py 注入

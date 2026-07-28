@@ -28,7 +28,8 @@ def create_app(coordinator) -> Flask:
     def _offline_headers(resp):
         from flask import request
 
-        # 与 index.html meta CSP 一致；服务端头优先
+        # CSP：服务端头优先；frame-ancestors 只能写在 HTTP 头，不能放 meta。
+        # script-src 仅 'self'，页面交互须在 /static/js 里 addEventListener，禁止 HTML 内联事件。
         resp.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; "
@@ -84,5 +85,12 @@ if __name__ == "__main__":
     logger.info(f"Web 界面: http://{args.host}:{args.port}")
     logger.info("启动后请在 Web 界面点击 '启动连接'，Script 主控会主动连接 VS 分号协议服务")
 
-    # 启动 Flask + SocketIO
-    socketio.run(app, host=args.host, port=args.port, debug=False, allow_unsafe_werkzeug=True)
+    # 启动 Flask + SocketIO（开发服务器；WebSocket 兼容见 web/ws_werkzeug_patch.py）
+    socketio.run(
+        app,
+        host=args.host,
+        port=args.port,
+        debug=False,
+        allow_unsafe_werkzeug=True,
+        use_reloader=False,
+    )

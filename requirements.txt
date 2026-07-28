@@ -1,3 +1,10 @@
-flask>=3.0
-flask-socketio>=5.3
-simple-websocket>=1.0
+# Web 主控
+flask>=3.1.3
+flask-socketio>=5.6.1
+python-socketio>=5.16.3
+python-engineio>=4.13.3
+simple-websocket>=1.1.0
+werkzeug>=3.1.8
+
+# 可选：Socket.IO 客户端测 WS（开发用）
+# websocket-client>=1.9.0
